@@ -5,7 +5,7 @@
   "type": "module",
   "description": "运行于本机的 DeepSeek Harness 测试群排障扩展",
   "main": "src/plugin.mjs",
-  "files": ["src", "config/demo.json", "config/browser-demo.json", "config/company.example.json", "config/services.example.json", "config/ssh.example.conf", "fixtures", "mock", "scripts", "test", ".agents/skills", "docs", "cordis.patch.yml", "README.md"],
+  "files": ["src", "config/demo.json", "config/browser-demo.json", "config/repair-demo.json", "config/company.example.json", "config/services.example.json", "config/ssh.example.conf", "fixtures", "mock", "scripts", "test", ".agents/skills", "docs", "cordis.patch.yml", "README.md"],
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "compatibility": { "dsh": "0.2.2-rc.1", "profiles": ["web"] }
@@ -17,7 +17,8 @@
     "test": "node --test test/*.test.mjs",
     "demo": "node scripts/demo.mjs",
     "demo:browser": "node scripts/demo-browser.mjs",
-    "demo:knowledge": "node scripts/demo-knowledge.mjs"
+    "demo:knowledge": "node scripts/demo-knowledge.mjs",
+    "demo:repair": "node scripts/demo-repair.mjs"
   },
   "engines": { "node": ">=22" }
 }

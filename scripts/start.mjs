@@ -53,12 +53,12 @@ if (!bskPath) { try { const local = path.join(root, '.local/bin', process.platfo
 const patches = [
   ...(model ? [{ id: 'agent-default-model', config: model }] : []),
   ...(browserEntry ? [{ insert: [{ id: 'troubleshooting-browserskill', name: browserEntry, config: { bskPath, lazyTools: false, maxSessions: 3, sessionStateDirectory: path.join(root, '.local/bsk-starts') } }] }] : []),
-  { insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/plugin.mjs'), config: { root, configFile, hostMode: 'standalone', ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] },
+  { insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/plugin.mjs'), config: { root, configFile, hostMode: 'standalone', ...(runConfig.runtimeFile ? { runtimeFile: runConfig.runtimeFile } : {}), ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] },
 ];
 const overlay = path.join(root, '.local/harness.patch.json');
 await writeFile(overlay, JSON.stringify(patches, null, 2), { mode: 0o600 });
 console.log(`使用 Harness ${version}，独立 profile：${profile}${model ? `，模型：${model.provider}/${model.model}` : ''}`);
-console.log('模拟群界面：http://127.0.0.1:4317（另一个终端运行 npm run mock）');
+if (runConfig.mode === 'mock') console.log(`模拟群界面：${new URL(runConfig.chat.baseUrl).origin}（需启动对应模拟接口）`);
 const invocation = launchCommand(cli, ['--profile', profile, '--patch', overlay, '--no-open', '--port', process.env.HARNESS_PORT ?? '4318']);
 const child = spawn(invocation.command, invocation.args, { cwd: root, stdio: 'inherit' });
 child.on('error', e => { console.error(e.message); process.exitCode = 1; });

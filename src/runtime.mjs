@@ -9,6 +9,7 @@ import { Coordinator } from './coordinator.mjs';
 import { repairTaskTitles } from './titles.mjs';
 import { browserInstructions } from './browser-support.mjs';
 import { createKnowledgeBase } from './knowledge.mjs';
+import { createRepairEngine } from './repair.mjs';
 
 export const name = 'test-troubleshooting';
 export const inject = ['timer', 'agents', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'attachments', 'sessionTitle', 'sessionPersistence', 'sessionQuery'];
@@ -17,7 +18,7 @@ export function apply(ctx, options = {}) {
   let coordinator, store, stopping = false, cancelTitleTimer, titleRepair, ownsState = false;
   let stopBoot;
   const stopped = new Promise(resolve => { stopBoot = resolve; });
-  const runtimeFile = path.join(root, '.local/runtime.json');
+  const runtimeFile = path.resolve(root, options.runtimeFile ?? '.local/runtime.json');
   const status = async value => { await mkdir(path.dirname(runtimeFile), { recursive: true }); await writeFile(runtimeFile, JSON.stringify({ ...value, pid: process.pid, at: new Date().toISOString() }, null, 2), { mode: 0o600 }); };
   const boot = async () => {
     await Promise.race([ctx.get('loader')?.await(), stopped]);
@@ -49,11 +50,12 @@ export function apply(ctx, options = {}) {
     const skill = await readFile(path.join(root, '.agents/skills/test-environment-troubleshooting/SKILL.md'), 'utf8');
     const browser = config.deploymentBackend?.enabled ? await browserInstructions(options.browserSkillDirectory, config.deploymentBackend) : null;
     const knowledge = await createKnowledgeBase(root, config.knowledge);
-    const runner = new HarnessRunner({ ctx, store, chat, queries, config, root, skill, browser, knowledge });
+    const repair = await createRepairEngine({ root, config, store, knowledge });
+    const runner = new HarnessRunner({ ctx, store, chat, queries, config, root, skill, browser, knowledge, repair });
     coordinator = new Coordinator({ store, chat, runner, config, log: text => console.log(`[排障助手] ${text}`) });
     if (stopping) return;
     coordinator.start((callback, delay) => ctx.timeout(callback, delay));
-    await status({ ready: true, mode: config.mode, hostMode: options.hostMode ?? 'embedded', scheduler: 'harness-timer', model: ctx.agentDefaultModel.currentSelection(), pollIntervalMs: config.pollIntervalMs, deploymentBackend: Boolean(browser), knowledgeSources: knowledge?.describe() ?? [] });
+    await status({ ready: true, mode: config.mode, hostMode: options.hostMode ?? 'embedded', scheduler: 'harness-timer', stateFile: path.resolve(root, config.stateFile), repairEnabled: Boolean(repair), model: ctx.agentDefaultModel.currentSelection(), pollIntervalMs: config.pollIntervalMs, deploymentBackend: Boolean(browser), knowledgeSources: knowledge?.describe() ?? [] });
     console.log(`[排障助手] 已启动，${config.pollIntervalMs / 1000} 秒轮询一次，模式 ${config.mode}`);
   };
   const booting = boot().catch(async e => {

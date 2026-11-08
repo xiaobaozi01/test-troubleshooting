@@ -49,7 +49,7 @@ export async function configureDesktop({ root, dshHome, profile = 'desktop', con
       // Otherwise keep the existing native plugin's CLI path/settings.
       entries.push({ id: 'browserskill', config: browserConfig });
     }
-    entries.push({ insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/desktop-plugin.mjs'), config: { root, configFile: absoluteConfig, hostMode: 'desktop', ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] });
+    entries.push({ insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/desktop-plugin.mjs'), config: { root, configFile: absoluteConfig, hostMode: 'desktop', ...(config.runtimeFile ? { runtimeFile: config.runtimeFile } : {}), ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] });
   }
   const next = updateDesktopPatch(current, entries);
   const changed = next !== current;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { confirmRepair, invalidateRepairs, formatRepairPlan, repairFooter } from './repair.mjs';
 
 const messageKey = m => `${m.groupId}:${m.id}`;
 export class Coordinator {
@@ -27,9 +28,14 @@ export class Coordinator {
       if (!task) continue; // Never assign an unrelated group message by guessing.
       this.store.data.seen[key] = task.id;
       const command = m.text.trim();
+      const confirmation = confirmRepair(task, m, this.store, this.config);
+      if (confirmation && !confirmation.accepted) {
+        this.queueReply(task, m.id, `#${task.id} ${confirmation.text}`, `repair-confirm:${m.id}`);
+        continue;
+      }
       if (m.senderId === this.config.chat.ownerId && ['/暂停', '/继续', '/结束'].includes(command)) {
         task.status = { '/暂停': 'paused', '/继续': 'queued', '/结束': 'closed' }[command];
-        if (command !== '/继续') this.runner.cancel?.(task.id);
+        if (command !== '/继续') { invalidateRepairs(task, command); this.runner.cancel?.(task.id); }
         this.queueReply(task, m.id, `任务 #${task.id} ${command.slice(1)}。`, `control:${m.id}`);
         continue;
       }
@@ -84,10 +90,10 @@ export class Coordinator {
       if (this.stopped) return;
       const action = task.actions[message.id] ?? await this.runner.run(task, message);
       if (this.stopped || ['paused', 'closed'].includes(task.status)) return;
-      if (!action || !['ask', 'finish'].includes(action.kind)) throw new Error('Agent 没有提交有效的追问或诊断结果');
+      if (!action || !['ask', 'finish', 'repair-proposal'].includes(action.kind)) throw new Error('Agent 没有提交有效的追问、诊断或修复方案');
       task.actions[message.id] = action;
-      task.status = action.kind === 'ask' ? 'awaiting_input' : 'diagnosed';
-      const text = action.kind === 'ask' ? `#${task.id} 需要补充信息：\n${action.question}` : formatReport(task.id, action);
+      task.status = action.kind === 'ask' ? 'awaiting_input' : action.kind === 'repair-proposal' ? 'awaiting_confirmation' : 'diagnosed';
+      const text = action.kind === 'ask' ? `#${task.id} 需要补充信息：\n${action.question}` : action.kind === 'repair-proposal' ? formatRepairPlan(task.id, task.repairPlans[action.planId]) : formatReport(task.id, action, task);
       this.queueReply(task, message.id, text, `result:${message.id}`);
       message.handled = true;
       await this.store.save();
@@ -128,7 +134,7 @@ export class Coordinator {
   }
 }
 
-export function formatReport(id, action) {
+export function formatReport(id, action, task) {
   const facts = action.findings.map(f => `- ${f.statement} [${f.evidenceIds.join(', ')}]`).join('\n');
-  return `#${id} 排障结果\n${action.summary}\n\n已确认事实\n${facts || '暂无'}\n\n候选原因\n${action.hypotheses.map(x => `- ${x}`).join('\n') || '无额外推测'}\n\n建议处理与验证\n${action.nextSteps.map(x => `- ${x}`).join('\n')}\n\n限制\n${action.limitations.map(x => `- ${x}`).join('\n') || '无额外说明'}\n\n本次仅执行查询，未修改服务或数据。`;
+  return `#${id} 排障结果\n${action.summary}\n\n已确认事实\n${facts || '暂无'}\n\n候选原因\n${action.hypotheses.map(x => `- ${x}`).join('\n') || '无额外推测'}\n\n建议处理与验证\n${action.nextSteps.map(x => `- ${x}`).join('\n')}\n\n限制\n${action.limitations.map(x => `- ${x}`).join('\n') || '无额外说明'}\n\n${repairFooter(task)}`;
 }

@@ -14,6 +14,7 @@
   "stateFile": ".local/company-tasks.json",
   "catalogFile": "config/services.company.json",
   "knowledge": { "sources": [] },
+  "repair": { "enabled": false, "environments": [], "allowedSources": [], "adapterModule": "company/deployment-repair.mjs", "options": {} },
   "deploymentBackend": {
     "enabled": false,
     "url": "https://deploy.example.invalid",

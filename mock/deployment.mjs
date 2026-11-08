@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { createRepairPlatform, repairApi } from './repair-platform.mjs';
 const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 const page = (title, content) => `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${title} · 模拟部署平台</title><style>body{font:16px system-ui;background:#f2f5f9;color:#26384f;padding:40px}.card{max-width:850px;margin:auto;background:white;padding:28px;border:1px solid #dce4ef;border-radius:14px}h1{font-size:24px}label{display:block;margin:18px 0 6px}input,select,textarea{font:15px system-ui;padding:10px;border:1px solid #b8c6d8;border-radius:6px}input{width:300px}button,a{display:inline-block;margin:16px 8px 8px 0;padding:10px 16px;background:#275fc7;color:white;border:0;border-radius:6px;text-decoration:none;cursor:pointer}small{color:#738298}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid #dde5f0}pre{padding:20px;background:#f3f6fa;white-space:pre-wrap}p{line-height:1.7}</style><div class="card"><small>本机演示数据 · 只读配置查看</small><h1>${title}</h1>${content}</div></html>`;
-export function createDeploymentPortal() {
+export function createDeploymentPortal(options) {
   const sessions = new Set();
-  const audit = { successfulLogins: 0, failedLogins: 0, configurationViews: [], writes: 0 };
-  return { audit, async handle(req, res, url) {
+  const repair = createRepairPlatform(options);
+  const audit = { successfulLogins: 0, failedLogins: 0, configurationViews: [], blockedWrites: 0, get writes() { return repair.count(); } };
+  return { audit, repair, handleRepair: repairApi(repair), async handle(req, res, url) {
     if (url.pathname !== '/deploy' && !url.pathname.startsWith('/deploy/')) return false;
     const html = (text, code = 200) => { res.writeHead(code, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(text); };
     const redirect = location => { res.writeHead(303, { Location: location }); res.end(); };
@@ -22,7 +24,7 @@ export function createDeploymentPortal() {
       const nonce = randomUUID().slice(0, 8);
       html(page('登录部署管理平台', `<p>这是模拟后台。演示账号：<b>demo</b>，演示密码：<b>demo-only</b>，均为公开测试数据。</p><form method="post" action="/deploy/login"><label for="u-${nonce}">账号</label><input id="u-${nonce}" name="username" autocomplete="username" required><label for="p-${nonce}">密码</label><input id="p-${nonce}" name="password" type="password" autocomplete="current-password" required><p><button type="submit">登录</button></p></form>`)); return true;
     }
-    if (req.method !== 'GET') { audit.writes++; html(page('只读演示', '<p>本平台不提供修改、发布或重启操作。</p>'), 405); return true; }
+    if (req.method !== 'GET') { audit.blockedWrites++; html(page('只读演示', '<p>浏览器页面仅供查看；修复操作由经过确认的配置适配器执行。</p>'), 405); return true; }
     if (url.pathname === '/deploy') {
       html(page('服务部署管理', '<p>当前登录：demo · 查看服务配置</p><form method="get" action="/deploy/services"><label for="env">环境</label><select id="env" name="env"><option value="staging">预发布 staging</option><option value="test">测试 test</option></select><label for="q">服务名称</label><input id="q" name="q" placeholder="输入服务名称，可留空"><p><button type="submit">查询服务</button></p></form>')); return true;
     }
@@ -37,8 +39,9 @@ export function createDeploymentPortal() {
       const service = url.searchParams.get('service');
       if (!['order-service', 'stock-service'].includes(service)) { html(page('服务不存在', '<a href="/deploy">返回</a>'), 404); return true; }
       audit.configurationViews.push({ environment, service, at: new Date().toISOString() });
-      const yaml = service === 'order-service' ? `spring:\n  application:\n    name: order-service\npartner:\n  api:\n    base-url: https://${environment === 'test' ? 'partner-sandobx' : 'partner-staging'}.example.invalid\n    timeout-ms: 3000\n` : 'cache:\n  namespace: test-stock\n';
-      html(page('服务配置 · YAML', `<p>服务：<strong>${service}</strong>　环境：<strong>${environment}</strong></p><p>配置版本：7 · 平台记录：已发布。是否被运行进程使用仍需日志核实。</p><pre aria-label="服务 YAML 配置">${escape(yaml)}</pre><p>本页仅供查看，没有保存或发布按钮。</p><a href="/deploy/services?env=${environment}">返回服务列表</a>`)); return true;
+      const c = repair.configuration(environment, service);
+      const yaml = service === 'order-service' ? `spring:\n  application:\n    name: order-service\npartner:\n  api:\n    base-url: ${c.values['partner.api.base-url']}\n    timeout-ms: ${c.values['partner.api.timeout-ms']}\n` : `cache:\n  namespace: ${c.values['cache.namespace']}\n`;
+      html(page('服务配置 · YAML', `<p>服务：<strong>${service}</strong>　环境：<strong>${environment}</strong></p><p>配置版本：${c.revision} · 平台记录：已发布。是否被运行进程使用仍需日志核实。</p><pre aria-label="服务 YAML 配置">${escape(yaml)}</pre><p>本页仅供查看，没有保存或发布按钮。</p><a href="/deploy/services?env=${environment}">返回服务列表</a>`)); return true;
     }
     redirect('/deploy'); return true;
   } };

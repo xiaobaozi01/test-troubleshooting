@@ -5,9 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { createDeploymentPortal } from './deployment.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.MOCK_PORT ?? 4317);
-const deployment = createDeploymentPortal();
-const file = path.join(root, '.local/mock-chat.json');
-await mkdir(path.dirname(file), { recursive: true });
+const stateDirectory = path.resolve(root, process.env.MOCK_STATE_DIR ?? '.local');
+const runtimeFile = path.resolve(root, process.env.MOCK_RUNTIME_FILE ?? '.local/runtime.json');
+const file = path.join(stateDirectory, 'mock-chat.json');
+await mkdir(stateDirectory, { recursive: true });
+const deploymentFile = path.join(stateDirectory, 'mock-deployment.json');
+let deploymentState;
+try { deploymentState = JSON.parse(await readFile(deploymentFile, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+const deployment = createDeploymentPortal({ state: deploymentState, persist: async value => { await writeFile(deploymentFile + '.tmp', JSON.stringify(value), { mode: 0o600 }); await rename(deploymentFile + '.tmp', deploymentFile); } });
 let data = { sequence: 0, messages: [], replies: {} };
 try { data = JSON.parse(await readFile(file, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
 let writes = Promise.resolve();
@@ -34,6 +39,7 @@ const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     if (origin && ![`http://127.0.0.1:${port}`, `http://localhost:${port}`].includes(origin)) return json(res, { error: 'invalid origin' }, 403);
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
+    if (await deployment.handleRepair(req, res, url)) return;
     if (await deployment.handle(req, res, url)) return;
     if (req.method === 'GET' && url.pathname === '/deployment-audit') return json(res, deployment.audit);
     if (req.method === 'GET' && url.pathname === '/') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(await readFile(path.join(root, 'mock/index.html'))); }
@@ -62,8 +68,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/snapshot') {
       let runtime = { ready: false }, state = { tasks: {} };
-      try { runtime = JSON.parse(await readFile(path.join(root, '.local/runtime.json'), 'utf8')); } catch {}
-      try { state = JSON.parse(await readFile(path.join(root, '.local/tasks.json'), 'utf8')); } catch {}
+      try { runtime = JSON.parse(await readFile(runtimeFile, 'utf8')); } catch {}
+      try { state = JSON.parse(await readFile(runtime.stateFile ?? path.join(stateDirectory, 'tasks.json'), 'utf8')); } catch {}
       try { if (runtime.pid) process.kill(runtime.pid, 0); } catch { runtime.ready = false; runtime.stopped = true; }
       return json(res, { messages: data.messages, runtime, tasks: Object.values(state.tasks) });
     }
