@@ -8,3 +8,4 @@ config/services.company.json
 .env
 .env.*
 !.env.example
+knowledge/company/

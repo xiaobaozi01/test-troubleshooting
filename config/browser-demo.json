@@ -6,6 +6,7 @@
   "maxToolCalls": 60,
   "stateFile": ".local/tasks.json",
   "catalogFile": "fixtures/catalog.json",
+  "knowledge": { "sources": [{ "id": "demo-faq", "title": "演示常见问题", "path": "fixtures/knowledge" }] },
   "deploymentBackend": {
     "enabled": true,
     "url": "http://127.0.0.1:4317/deploy",

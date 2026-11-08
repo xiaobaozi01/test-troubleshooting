@@ -13,6 +13,7 @@
   "maxToolCalls": 60,
   "stateFile": ".local/company-tasks.json",
   "catalogFile": "config/services.company.json",
+  "knowledge": { "sources": [] },
   "deploymentBackend": {
     "enabled": false,
     "url": "https://deploy.example.invalid",

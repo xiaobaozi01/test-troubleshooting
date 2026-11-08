@@ -8,6 +8,7 @@ import { HarnessRunner } from './harness-runner.mjs';
 import { Coordinator } from './coordinator.mjs';
 import { repairTaskTitles } from './titles.mjs';
 import { browserInstructions } from './browser-support.mjs';
+import { createKnowledgeBase } from './knowledge.mjs';
 
 export const name = 'test-troubleshooting';
 export const inject = ['agents', 'tools', 'systemPrompt', 'sessions', 'agentDefaultModel', 'attachments', 'sessionTitle', 'sessionPersistence', 'sessionQuery'];
@@ -42,10 +43,11 @@ export function apply(ctx, options = {}) {
     const queries = new QueryTools({ root, catalog, mode: config.mode });
     const skill = await readFile(path.join(root, '.agents/skills/test-environment-troubleshooting/SKILL.md'), 'utf8');
     const browser = config.deploymentBackend?.enabled ? await browserInstructions(options.browserSkillDirectory, config.deploymentBackend) : null;
-    const runner = new HarnessRunner({ ctx, store, chat, queries, config, root, skill, browser });
+    const knowledge = await createKnowledgeBase(root, config.knowledge);
+    const runner = new HarnessRunner({ ctx, store, chat, queries, config, root, skill, browser, knowledge });
     coordinator = new Coordinator({ store, chat, runner, config, log: text => console.log(`[排障助手] ${text}`) });
     coordinator.start();
-    await status({ ready: true, mode: config.mode, model: ctx.agentDefaultModel.currentSelection(), pollIntervalMs: config.pollIntervalMs, deploymentBackend: Boolean(browser) });
+    await status({ ready: true, mode: config.mode, model: ctx.agentDefaultModel.currentSelection(), pollIntervalMs: config.pollIntervalMs, deploymentBackend: Boolean(browser), knowledgeSources: knowledge?.describe() ?? [] });
     console.log(`[排障助手] 已启动，${config.pollIntervalMs / 1000} 秒轮询一次，模式 ${config.mode}`);
   };
   void boot().catch(async e => { clearInterval(titleTimer); console.error(`[排障助手] 启动失败：${e.message}`); await status({ ready: false, error: e.message }); await store?.close(); });

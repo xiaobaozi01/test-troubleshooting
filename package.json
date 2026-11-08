@@ -15,7 +15,8 @@
     "mock": "node mock/server.mjs",
     "test": "node --test test/*.test.mjs",
     "demo": "node scripts/demo.mjs",
-    "demo:browser": "node scripts/demo-browser.mjs"
+    "demo:browser": "node scripts/demo-browser.mjs",
+    "demo:knowledge": "node scripts/demo-knowledge.mjs"
   },
   "engines": { "node": ">=22" }
 }

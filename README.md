@@ -63,6 +63,8 @@ npm test
 
 ## 回公司后替换哪些部分
 
+提供一份常见问题列表即可启用知识检索；支持本地 Markdown/JSON，也提供公司知识库适配接口。Agent 阅读资料后判断适用条件，能直接答复的无需查运行日志，仍需验证的问题继续排查。见 [常见问题与知识源扩展](docs/knowledge.md)。
+
 需要登录部署后台查看 YAML 时，见 [BrowserSkill 接入与模拟步骤](docs/deployment-browser.md)。后台入口可配置，页面登录和导航由 Agent 使用原生浏览器工具决定。
 
 公司电脑是 Windows 时，按 [Windows 公司使用步骤](docs/company-windows.md) 操作；环境和 SSH 模板位于 `config/`。

@@ -5,5 +5,6 @@
   "turnTimeoutMs": 180000,
   "maxToolCalls": 20,
   "stateFile": ".local/tasks.json",
-  "catalogFile": "fixtures/catalog.json"
+  "catalogFile": "fixtures/catalog.json",
+  "knowledge": { "sources": [{ "id": "demo-faq", "title": "演示常见问题", "path": "fixtures/knowledge" }] }
 }
