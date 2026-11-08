@@ -1,0 +1,20 @@
+{
+  "environments": [
+    "test"
+  ],
+  "hosts": [
+    {
+      "environment": "test",
+      "host": "mock-order-host",
+      "mockContainersFile": "fixtures/containers-order.jsonl"
+    },
+    {
+      "environment": "test",
+      "host": "mock-stock-host",
+      "mockContainersFile": "fixtures/containers-stock.jsonl"
+    }
+  ],
+  "repositoryRoots": [
+    "fixtures/repos"
+  ]
+}

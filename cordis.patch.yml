@@ -1,0 +1,4 @@
+# Installed bundle entry. Defaults to simulated interfaces and fixtures.
+- insert:
+    - id: test-troubleshooting
+      name: dsh-troubleshooting

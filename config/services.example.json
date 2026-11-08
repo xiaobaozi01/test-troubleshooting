@@ -1,0 +1,23 @@
+{
+  "environments": [
+    "test",
+    "staging"
+  ],
+  "hosts": [
+    {
+      "environment": "test",
+      "host": "qa-order"
+    },
+    {
+      "environment": "test",
+      "host": "qa-stock"
+    },
+    {
+      "environment": "staging",
+      "host": "staging-apps"
+    }
+  ],
+  "repositoryRoots": [
+    "C:/work/repos"
+  ]
+}

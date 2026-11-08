@@ -1,0 +1,1 @@
+{"Names":"order-service","Image":"demo/order-service:demo","State":"running","Labels":"com.docker.compose.service=order-service","MockLogFile":"fixtures/logs/order-service.log"}

@@ -1,0 +1,9 @@
+{
+  "mode": "mock",
+  "chat": { "baseUrl": "http://127.0.0.1:4317", "groupIds": ["qa-test"], "ownerId": "developer-me", "botId": "troubleshooting-bot" },
+  "pollIntervalMs": 10000,
+  "turnTimeoutMs": 180000,
+  "maxToolCalls": 20,
+  "stateFile": ".local/tasks.json",
+  "catalogFile": "fixtures/catalog.json"
+}

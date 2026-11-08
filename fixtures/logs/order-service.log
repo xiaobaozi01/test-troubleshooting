@@ -1,0 +1,12 @@
+2026-11-09T01:59:58+08:00 INFO traceId=unrelated-900 POST /api/orders completed status=200
+2026-11-09T02:00:00+08:00 INFO traceId=demo-order-101 POST /api/orders sku=SKU-DEMO-1 quantity=1
+2026-11-09T02:00:00.030+08:00 INFO traceId=demo-order-101 calling stock-service POST /internal/stock/reserve
+2026-11-09T02:00:00.070+08:00 ERROR traceId=demo-order-101 downstream=stock-service status=500 code=STOCK_CACHE_CONFIG_MISSING
+org.springframework.web.client.HttpServerErrorException: stock-service returned 500
+    at demo.OrderService.createOrder(OrderService.java:12)
+2026-11-09T02:00:00.080+08:00 ERROR traceId=demo-order-101 POST /api/orders status=500 code=ORDER_CREATE_FAILED
+2026-11-09T02:00:01+08:00 ERROR traceId=unrelated-901 downstream=payment-service connection timeout
+2026-11-09T03:00:00+08:00 INFO traceId=demo-partner-202 GET /api/partner/status
+2026-11-09T03:00:00.020+08:00 ERROR traceId=demo-partner-202 downstream=partner-api url=https://partner-sandobx.example.invalid/v1/status code=PARTNER_CONNECT_FAILED
+java.net.UnknownHostException: partner-sandobx.example.invalid
+    at demo.PartnerClient.status(PartnerClient.java:9)

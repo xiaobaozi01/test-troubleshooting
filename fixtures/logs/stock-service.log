@@ -1,0 +1,10 @@
+2026-11-09T01:59:50+08:00 INFO traceId=unrelated-902 health status=UP
+2026-11-09T02:00:00.040+08:00 INFO traceId=demo-order-101 POST /internal/stock/reserve sku=SKU-DEMO-1
+2026-11-09T02:00:00.060+08:00 ERROR traceId=demo-order-101 code=STOCK_CACHE_CONFIG_MISSING CACHE_NAMESPACE is empty in running process
+Traceback (most recent call last):
+  File "stock_service.py", line 10, in reserve
+    namespace = require_namespace()
+  File "stock_service.py", line 6, in require_namespace
+    raise RuntimeError("STOCK_CACHE_CONFIG_MISSING: CACHE_NAMESPACE is empty")
+RuntimeError: STOCK_CACHE_CONFIG_MISSING: CACHE_NAMESPACE is empty
+2026-11-09T02:00:01+08:00 ERROR traceId=unrelated-903 code=SKU_NOT_FOUND sku=OTHER-SKU

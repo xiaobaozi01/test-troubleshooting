@@ -1,0 +1,1 @@
+{"Names":"stock-service","Image":"demo/stock-service:demo","State":"running","Labels":"com.docker.compose.service=stock-service","MockLogFile":"fixtures/logs/stock-service.log"}
