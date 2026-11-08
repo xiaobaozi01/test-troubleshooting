@@ -1,6 +1,6 @@
 {
   "mode": "mock",
-  "chat": { "baseUrl": "http://127.0.0.1:4320", "groupIds": ["qa-test"], "ownerId": "developer-me", "botId": "developer-me", "deliveryMode": "draft" },
+  "chat": { "baseUrl": "http://127.0.0.1:4320", "groupIds": ["qa-test"], "ownerId": "developer-me", "botId": "developer-me", "deliveryMode": "auto" },
   "pollIntervalMs": 2000,
   "turnTimeoutMs": 360000,
   "maxToolCalls": 80,

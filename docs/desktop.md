@@ -12,7 +12,7 @@ npm run install:desktop -- --config config/company.json
 
 公司配置和聊天适配器需要先按 [Windows 使用说明](company-windows.md) 准备。脚本默认操作当前用户的 `.dsh/profiles/desktop/cordis.patch.yml`，可用 `DSH_HOME` 指定 Harness 数据目录，或用 `--profile 名称` 选择实际使用的 profile。不复制或改变当前模型、provider、账号和凭据；新排障会话使用这个 Harness 当时选定的默认模型。
 
-公司同账号场景使用 chat.deliveryMode: "draft"，ownerId 与 botId 都填你的账号。插件只读群消息，追问和最终结果在 Harness 中显示供你转发；修复方案在该会话的原生审批卡片审阅，点击“允许一次”后执行。不需要在群里区分你的人工消息与助手消息。
+公司同账号场景显式使用 chat.deliveryMode: "auto"，ownerId 与 botId 都填你的账号。插件通过你的账号自动追问和发送最终结果；修复方案仍在 Harness 原生审批卡片审阅，点击“允许一次”后执行。你账号的群消息不作为新排障输入，插件回显不会引发循环；发送回执、任务编号及可选 clientMessageId 用于继续关联测试补充。需要手动转发时可另设 draft。
 
 脚本为自己的配置块加管理标记，修改前生成权限受限的备份；可以重复执行，不重复加载插件。原有设置和 package.json 保留。项目入口、配置位置采用绝对路径，因此移动项目目录后要重新执行安装。它是加载本地代码的开发安装方式，不是将项目上传到插件市场。
 

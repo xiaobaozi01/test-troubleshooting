@@ -59,7 +59,8 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req);
       if (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey) throw new Error('需要 idempotencyKey');
       if (data.replies[input.idempotencyKey]) return json(res, { id: data.replies[input.idempotencyKey] });
-      const m = message(input, 'troubleshooting-bot');
+      const m = message(input, input.senderId === 'developer-me' ? 'developer-me' : 'troubleshooting-bot');
+      m.clientMessageId = input.idempotencyKey;
       data.messages.push(m); data.replies[input.idempotencyKey] = m.id;
       await save(); return json(res, { id: m.id });
     }

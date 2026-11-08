@@ -24,9 +24,16 @@ if (nativeApproval && process.argv.includes('--wait-demo')) {
   const audit = await get('/deployment-audit');
   if (!['verified', 'cancelled', 'stale'].includes(plan.state)) throw new Error(`审批或验证尚未通过：${plan.state}`);
   if (audit.writes !== saved.beforeWrites + (plan.state === 'verified' ? 1 : 0)) throw new Error('发布次数与审批结果不一致');
-  if (!task.latestDraft || task.latestDraft.delivery !== 'manual') throw new Error('没有生成供本人手动发群的草稿');
-  await writeFile('.local/repair-demo/result.json', JSON.stringify({ taskId: task.id, plan, audit, draft: task.latestDraft, calls: task.calls, evidence: task.evidence }, null, 2));
-  console.log(`通过：原生审批结果 ${plan.approvalOutcome}，修复状态 ${plan.state}；结果为手动转发草稿。`);
+  let delivery;
+  if (initial.runtime.deliveryMode === 'draft') {
+    if (!task.latestDraft || task.latestDraft.delivery !== 'manual') throw new Error('没有生成手动转发草稿');
+    delivery = task.latestDraft;
+  } else {
+    delivery = await wait(state => state.messages.findLast(m => m.replyTo === saved.rootMessageId && m.text.startsWith(`#${task.id} 排障结果`)), 30000);
+    if (delivery.senderId !== 'developer-me') throw new Error('报告未通过模拟开发账号发送');
+  }
+  await writeFile('.local/repair-demo/result.json', JSON.stringify({ taskId: task.id, plan, audit, delivery, calls: task.calls, evidence: task.evidence }, null, 2));
+  console.log(`通过：原生审批结果 ${plan.approvalOutcome}，修复状态 ${plan.state}；结果按 ${initial.runtime.deliveryMode} 投递。`);
   process.exit(0);
 }
 if (process.argv.includes('--status-demo')) {
@@ -57,7 +64,7 @@ if (process.argv.includes('--status-demo')) {
   if (!plan || !task.calls.some(c => c.tool === 'troubleshoot_repair_propose')) throw new Error('没有实际方案工具调用');
   if (!nativeApproval && (await get('/deployment-audit')).writes !== before.writes) throw new Error('未确认就发生了配置写入');
   await writeFile('.local/repair-demo/proposal.json', JSON.stringify({ taskId: task.id, planId: plan.id, rootMessageId: first.id, beforeWrites: before.writes }, null, 2));
-  console.log(nativeApproval ? `已提出 ${task.id} / ${plan.id}。请在 Harness 对应会话的一次性审批卡片审阅并决定，群里不确认也不自动发结果。之后运行 npm run demo:repair -- --wait-demo。` : `通过：${task.id} / ${plan.id} 已提出方案，尚无写入。请在模拟群由“开发（你）”引用方案回复 /确认修复 ${plan.id}。`);
+  console.log(nativeApproval ? `已提出 ${task.id} / ${plan.id}。请在 Harness 对应会话的一次性审批卡片审阅并决定；群里不确认，完成后按当前投递模式发结果。之后运行 npm run demo:repair -- --wait-demo。` : `通过：${task.id} / ${plan.id} 已提出方案，尚无写入。请在模拟群由“开发（你）”引用方案回复 /确认修复 ${plan.id}。`);
 } else {
   const saved = JSON.parse(await readFile('.local/repair-demo/proposal.json', 'utf8'));
   const task = initial.tasks.find(t => t.id === saved.taskId);

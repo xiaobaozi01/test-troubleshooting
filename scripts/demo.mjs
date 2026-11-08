@@ -37,7 +37,7 @@ while (Date.now() < deadline) {
   const task = state.tasks.find(t => t.rootMessageId === first.id);
   if (task?.status === 'failed') throw new Error(`真实 Agent 排查失败：${task.error}`);
   if (task?.status === 'awaiting_input' && !replied) {
-    const question = state.messages.find(m => m.senderId === 'troubleshooting-bot' && m.replyTo === first.id);
+    const question = state.messages.find(m => m.replyTo === first.id && m.text.startsWith(`#${task.id} 需要补充信息：`));
     if (question) {
       console.log(`Agent 已追问：${question.text}`);
       await send({ text: '环境 test，失败接口 POST /api/orders，时间 2026-11-09T02:00:00+08:00，请求 traceId=demo-order-101，商品 SKU-DEMO-1。', mentions: [], replyTo: question.id });

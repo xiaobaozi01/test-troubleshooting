@@ -6,7 +6,7 @@
     "groupIds": ["REPLACE_WITH_TEST_GROUP_ID"],
     "ownerId": "REPLACE_WITH_YOUR_ACCOUNT_ID",
     "botId": "REPLACE_WITH_YOUR_ACCOUNT_ID",
-    "deliveryMode": "draft",
+    "deliveryMode": "auto",
     "tokenEnv": "COMPANY_CHAT_TOKEN"
   },
   "pollIntervalMs": 10000,

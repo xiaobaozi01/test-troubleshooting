@@ -16,6 +16,7 @@ export class HttpChatAdapter {
     if (!Array.isArray(result.messages) || typeof result.nextCursor !== 'string') throw new Error('群接口返回格式错误');
     for (const m of result.messages) {
       if (![m.id, m.groupId, m.senderId, m.text, m.timestamp].every(v => typeof v === 'string') || !Array.isArray(m.mentions)) throw new Error('群消息缺少必要字段');
+      if (m.clientMessageId !== undefined && (typeof m.clientMessageId !== 'string' || !m.clientMessageId || m.clientMessageId.length > 1000)) throw new Error('群消息的发送关联键无效');
     }
     return result;
   }

@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { confirmRepair, invalidateRepairs, formatRepairPlan, repairFooter } from './repair.mjs';
 
 const messageKey = m => `${m.groupId}:${m.id}`;
-export const manualDelivery = config => config.chat?.deliveryMode === 'draft' || Boolean(config.chat?.ownerId) && config.chat.ownerId === config.chat.botId;
+export const sharedAccount = config => Boolean(config.chat?.ownerId) && config.chat.ownerId === config.chat.botId;
+export const manualDelivery = config => config.chat?.deliveryMode === 'draft' || config.chat?.deliveryMode !== 'auto' && sharedAccount(config);
 export class Coordinator {
   constructor({ store, chat, runner, config, log = console.log }) {
     Object.assign(this, { store, chat, runner, config, log });
@@ -21,10 +22,12 @@ export class Coordinator {
       if (Object.hasOwn(this.store.data.seen, key)) continue;
       this.store.data.seen[key] = null;
       if (!this.config.chat.groupIds.includes(m.groupId)) continue;
-      // With a shared account there is no reliable human/bot distinction in IM.
-      // Treat the owner's IM messages as references, never as approvals or model input.
-      if (manualDelivery(this.config) && m.senderId === this.config.chat.ownerId) {
-        this.store.data.seen[key] = this.taskForReply(m)?.id ?? null;
+      // Outgoing echoes may arrive before send() returns, or after its response is lost.
+      // Shared-account IM is never an approval channel or new owner-authored model input.
+      if ((sharedAccount(this.config) || manualDelivery(this.config)) && m.senderId === this.config.chat.ownerId) {
+        const outgoing = this.store.data.outbox.find(item => item.groupId === m.groupId && (item.messageId === m.id || typeof m.clientMessageId === 'string' && item.idempotencyKey === m.clientMessageId));
+        const known = outgoing && this.store.data.tasks[outgoing.taskId];
+        this.store.data.seen[key] = known?.groupId === m.groupId ? known.id : this.taskForReply(m)?.id ?? null;
         continue;
       }
       if (m.senderId === this.config.chat.botId) continue;
@@ -82,6 +85,11 @@ export class Coordinator {
     try {
       for (const item of this.store.data.outbox.filter(x => !x.sent)) {
         if (this.stopped) break;
+        if (!this.config.chat.groupIds.includes(item.groupId) || item.senderId !== this.config.chat.botId) {
+          if (!item.blockedReason) { item.blockedReason = '当前发送账号或群白名单与旧发件项不匹配，未发送'; await this.store.save(); }
+          continue;
+        }
+        delete item.blockedReason;
         const result = await this.chat.send(item, this.abort.signal);
         if (typeof result.id !== 'string') throw new Error('发送回复没有返回消息 ID');
         item.sent = true; item.messageId = result.id;

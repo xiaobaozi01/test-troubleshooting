@@ -1,16 +1,16 @@
 # 本机测试群排障助手
 
-这是运行在公司电脑上的 DeepSeek Harness 扩展：轮询测试群的 @开发 消息，在 Agent 会话内查文档、代码和跨服务日志。公司同账号模式只读取群消息，结果和追问在 Harness 中生成草稿，由你手动发回群。
+这是运行在公司电脑上的 DeepSeek Harness 扩展：轮询测试群的 @开发 消息，在 Agent 会话内查文档、代码和跨服务日志。公司同账号模式自动用你的账号追问并发送最终结果；需要修改配置时，先在 Harness 内由你逐次审批。
 
 Agent 循环、模型调用、会话历史和图片处理复用 Harness。本项目不维护另一套模型 API Key，也不自建 Agent 循环。
 
 推荐直接接入你日常打开的 Harness，安装一次后随宿主启动，默认10秒拉群消息，空闲时不调用模型，无需独立 `npm start`。公司配置准备好后执行 `npm run install:desktop -- --config config/company.json`。本机模拟可用 `config/browser-demo.json`，仅演示接口仍需 `npm run mock`。详见 [桌面 Harness 接入](docs/desktop.md)。
 
-配置修复复用 Harness 原生一次性审批：Agent 提出精确差异，你在对应会话审批卡片点“允许一次”后才通过平台适配器修改发布并验证；结果由你手动发群，公司默认关闭。见 [Harness 内审批修复](docs/repair.md)。
+配置修复复用 Harness 原生一次性审批：Agent 提出精确差异，你在对应会话审批卡片点“允许一次”后才通过平台适配器修改发布并验证，最终结果自动发群。公司修复默认关闭。见 [Harness 内审批修复](docs/repair.md)。
 
 ## 独立调试模式
 
-以下默认 demo/browser-demo 使用模拟的独立助手账号和自动回群，仅保留作旧流程调试。公司同账号请使用 company.example.json 的草稿模式；同账号修复演示使用 config/repair-demo.json 和 Harness 会话内审批。
+以下默认 demo/browser-demo 使用模拟的独立助手账号。公司同账号请将 ownerId 与 botId 设为你的账号并显式配置 deliveryMode: "auto"；同账号修复演示使用 config/repair-demo.json 和 Harness 会话内审批。
 
 已在本机 **DeepSeek Harness 桌面版 0.2.2-rc.1** 实际验证。全局 `dsh` 是旧版本时，启动脚本会优先使用桌面应用自带的 CLI。需要 Node.js 22 或以上，无需 npm install。
 
@@ -91,7 +91,7 @@ npm test
 
 首次启动从群当前游标开始，避免处理整个历史群聊；后续重启从已保存游标继续。没有新任务时不会调用模型。默认每10秒轮询，失败退避到最多60秒；每轮模型查询有预算和超时。
 
-旧自动发送模式支持开发身份引用消息发送 /暂停、/继续、/结束。同账号草稿模式不从群内取得控制或审批：在 Harness 查看排障及审批，手动转发消息时保留 #T-xxxxxxxx 或引用原任务，测试的补充便能回到原任务。没有明确关联的普通消息不猜测分配。
+独立助手账号模式支持开发引用消息发送 /暂停、/继续、/结束。同账号模式不从群消息取得控制或修复授权，在 Harness 审批；插件发出的追问带任务编号和引用，测试补充归回原任务。来自你账号的消息只保留关联，不触发递归排障。没有明确关联的普通消息不猜测分配。
 
 ## 当前边界
 
