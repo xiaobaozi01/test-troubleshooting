@@ -5,7 +5,8 @@
     "adapterModule": "company/chat-adapter.mjs",
     "groupIds": ["REPLACE_WITH_TEST_GROUP_ID"],
     "ownerId": "REPLACE_WITH_YOUR_ACCOUNT_ID",
-    "botId": "REPLACE_WITH_INTEGRATION_ACCOUNT_ID",
+    "botId": "REPLACE_WITH_YOUR_ACCOUNT_ID",
+    "deliveryMode": "draft",
     "tokenEnv": "COMPANY_CHAT_TOKEN"
   },
   "pollIntervalMs": 10000,
@@ -14,7 +15,7 @@
   "stateFile": ".local/company-tasks.json",
   "catalogFile": "config/services.company.json",
   "knowledge": { "sources": [] },
-  "repair": { "enabled": false, "environments": [], "allowedSources": [], "adapterModule": "company/deployment-repair.mjs", "options": {} },
+  "repair": { "enabled": false, "approvalMode": "harness", "environments": [], "allowedSources": [], "adapterModule": "company/deployment-repair.mjs", "options": {} },
   "deploymentBackend": {
     "enabled": false,
     "url": "https://deploy.example.invalid",

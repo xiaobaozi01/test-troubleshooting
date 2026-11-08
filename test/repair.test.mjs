@@ -12,7 +12,7 @@ import { Coordinator } from '../src/coordinator.mjs';
 
 const old = 'https://partner-sandobx.example.invalid', fixed = 'https://partner-sandbox.example.invalid';
 const policy = { environments: ['test'], services: ['order-service'], keys: ['partner.api.base-url'], checks: ['partner-status'], publish: true };
-const chatConfig = { chat: { groupIds: ['qa'], ownerId: 'me', botId: 'bot' }, repair: { enabled: true } };
+const chatConfig = { chat: { groupIds: ['qa'], ownerId: 'me', botId: 'bot' }, repair: { enabled: true, approvalMode: 'chat' } };
 async function fixture() {
   let time = Date.now(), version = 'v1';
   const task = { id: 'T-12345678', groupId: 'qa', evidence: {}, messages: [], calls: [], actions: {} };
@@ -20,7 +20,7 @@ async function fixture() {
   const platform = createRepairPlatform();
   const adapter = { ...platform };
   const knowledge = { read: async () => ({ sourceId: 'approved', documentId: 'runbook', version, repairPolicy: policy, location: 'doc.md' }) };
-  const config = { enabled: true, ownerId: 'me', environments: ['test'], allowedSources: ['approved'] };
+  const config = { enabled: true, approvalMode: 'chat', ownerId: 'me', environments: ['test'], allowedSources: ['approved'] };
   const engine = new RepairEngine({ adapter, store, knowledge, config, now: () => time });
   const snapshot = evidence(task, 'repair-snapshot', {}, await engine.snapshot({ environment: 'test', service: 'order-service', keys: ['partner.api.base-url'] }));
   const doc = evidence(task, 'knowledge-document', {}, await knowledge.read());
@@ -176,4 +176,47 @@ test('确认消息经持久队列交回 Agent，本人确认前不调用修复�
   await c.ingest([message], '1'); await c.workOnce(); assert.equal(runs, 0); assert.equal(plan.state, 'awaiting_confirmation');
   await c.ingest([{ ...message, id: 'owner-confirm', senderId: 'me' }], '2');
   assert.equal(plan.state, 'approved'); await c.workOnce(); assert.equal(runs, 1); assert.equal(f.platform.count(), 0);
+});
+
+test('Harness 原生一次性审批展示精确差异；允许后才发布，持久记录不能伪造或重放许可', async () => {
+  const f = await fixture(); f.config.approvalMode = 'harness'; f.task.sessionId = 'local-session';
+  const plan = await f.propose();
+  const source = { id: 'group-input', senderId: 'tester', groupId: 'qa' };
+  const context = { agent: { session: { id: f.task.sessionId } }, callId: 'call-real', request: async req => {
+    assert.ok(req.reason.includes(old)); assert.ok(req.reason.includes(fixed)); assert.ok(req.reason.includes('允许一次')); assert.ok(!req.reason.includes('/确认修复'));
+    assert.equal(f.platform.count(), 0); return 'allowed-once';
+  } };
+  assert.equal((await f.engine.executeInHarness(f.task, plan.id, source, context)).state, 'verified');
+  assert.equal(plan.approval.channel, 'harness'); assert.equal(f.platform.count(), 1);
+  await assert.rejects(f.engine.execute(f.task, plan.id, source), /有效确认/);
+  const restarted = new RepairEngine({ adapter: f.platform, knowledge: f.knowledge, config: f.config, store: f.store });
+  await assert.rejects(restarted.execute(f.task, plan.id, source), /有效确认/);
+  assert.equal((await restarted.status(f.task, plan.id)).state, 'verified'); assert.equal(f.platform.count(), 1);
+});
+
+test('原生审批拒绝、取消、不可用或失败均不写入，不反复弹出同一审批', async () => {
+  for (const outcome of ['rejected', 'cancelled', 'unavailable', 'error']) {
+    const f = await fixture(); f.config.approvalMode = 'harness'; f.task.sessionId = 'local-session';
+    const plan = await f.propose(); let requests = 0;
+    const context = { agent: { session: { id: f.task.sessionId } }, callId: 'call-real', request: async () => { requests++; if (outcome === 'error') throw new Error('UI disconnected'); return outcome; } };
+    const result = await f.engine.executeInHarness(f.task, plan.id, { id: 'group-input' }, context);
+    assert.equal(result.state, 'cancelled'); assert.equal(f.platform.count(), 0);
+    await f.engine.executeInHarness(f.task, plan.id, { id: 'group-input' }, context);
+    assert.equal(requests, 1);
+  }
+});
+
+test('原生审批等待期间的过期或配置变化会使批准失效，其他会话不能请求授权', async () => {
+  for (const changed of ['expired', 'revision']) {
+    const f = await fixture(); f.config.approvalMode = 'harness'; f.task.sessionId = 'local-session';
+    const plan = await f.propose();
+    const context = { agent: { session: { id: f.task.sessionId } }, callId: 'call-real', request: async () => {
+      if (changed === 'expired') f.advance(16 * 60000);
+      else await f.platform.apply({ operationId: 'R-cccccccccccc', environment: 'test', service: 'order-service', expectedRevision: '7', changes: [{ key: 'partner.api.timeout-ms', before: 3000, after: 4000 }], publish: true });
+      return 'allowed-once';
+    } };
+    await assert.rejects(f.engine.executeInHarness(f.task, plan.id, {}, { ...context, agent: { session: { id: 'other-session' } } }), /真实 Harness/);
+    const result = await f.engine.executeInHarness(f.task, plan.id, { id: 'group-input' }, context);
+    assert.equal(result.state, 'stale'); assert.equal(f.platform.configuration('test', 'order-service').values['partner.api.base-url'], old);
+  }
 });

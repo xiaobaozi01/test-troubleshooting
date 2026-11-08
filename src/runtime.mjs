@@ -5,7 +5,7 @@ import { Store } from './store.mjs';
 import { HttpChatAdapter } from './chat.mjs';
 import { QueryTools } from './queries.mjs';
 import { HarnessRunner } from './harness-runner.mjs';
-import { Coordinator } from './coordinator.mjs';
+import { Coordinator, manualDelivery } from './coordinator.mjs';
 import { repairTaskTitles } from './titles.mjs';
 import { browserInstructions } from './browser-support.mjs';
 import { createKnowledgeBase } from './knowledge.mjs';
@@ -55,7 +55,7 @@ export function apply(ctx, options = {}) {
     coordinator = new Coordinator({ store, chat, runner, config, log: text => console.log(`[排障助手] ${text}`) });
     if (stopping) return;
     coordinator.start((callback, delay) => ctx.timeout(callback, delay));
-    await status({ ready: true, mode: config.mode, hostMode: options.hostMode ?? 'embedded', scheduler: 'harness-timer', stateFile: path.resolve(root, config.stateFile), repairEnabled: Boolean(repair), model: ctx.agentDefaultModel.currentSelection(), pollIntervalMs: config.pollIntervalMs, deploymentBackend: Boolean(browser), knowledgeSources: knowledge?.describe() ?? [] });
+    await status({ ready: true, mode: config.mode, hostMode: options.hostMode ?? 'embedded', scheduler: 'harness-timer', stateFile: path.resolve(root, config.stateFile), deliveryMode: manualDelivery(config) ? 'draft' : 'auto', repairEnabled: Boolean(repair), approvalMode: repair?.config.approvalMode ?? null, model: ctx.agentDefaultModel.currentSelection(), pollIntervalMs: config.pollIntervalMs, deploymentBackend: Boolean(browser), knowledgeSources: knowledge?.describe() ?? [] });
     console.log(`[排障助手] 已启动，${config.pollIntervalMs / 1000} 秒轮询一次，模式 ${config.mode}`);
   };
   const booting = boot().catch(async e => {

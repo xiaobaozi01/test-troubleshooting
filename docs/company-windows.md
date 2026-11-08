@@ -83,7 +83,7 @@ ssh -o BatchMode=yes qa-order 'docker logs --tail 20 order-service'
 
 ## 4. 公司群适配完成后再切真实模式
 
-将公司拉消息、下载截图、发回复接口封装到 `company/chat-adapter.mjs`。契约见 `docs/integration.md`。填写 `config/company.json` 的群 ID、被 @ 的开发账号 ID、接入账号 ID；`adapterModule` 指向这个模块。
+将公司拉消息、下载截图接口封装到 company/chat-adapter.mjs。填写群 ID，ownerId 与 botId 都是你的账号，deliveryMode 使用 draft；插件不调用发送接口。契约见 docs/integration.md。Agent 把追问和结果展示在 Harness，会话中的草稿由你手动转发。
 
 真实群认证信息留在适配器使用的本地凭证机制中。模板的 `tokenEnv` 只是环境变量名；公司适配器要按公司实际认证协议读取它，不能认为填名字就完成认证。
 
@@ -95,6 +95,6 @@ npm run install:desktop -- --config config/company.json
 
 公司模式不需要运行模拟群服务，也不需要独立排障进程，只需保持 Harness 开启。任务状态和证据保存在 `.local/company-tasks.json`，与模拟任务分开。首次连接从当前群游标开始，之后按已保存游标增量处理。仅在终端设置的认证环境变量不会传入已运行的 Harness；认证与系统工具环境说明见 [桌面接入](desktop.md)。
 
-正式接入前先在专用测试群验证一个明确问题：@你的账号 → 追问 → SSH 查询 → 群回复；再加入日常测试群。
+正式接入前先在专用测试群验证：测试 @你 → Harness 排障 → 展示结果草稿 → 你手动发回群。修复时增加 Harness 内一次性审批和发布后验证。
 
-需要文档支持的配置修复时，按 [本人确认后修复与发布](repair.md) 接入平台写入适配器；company.example.json 默认关闭此能力。文档明确授权且你引用具体方案确认后才会修改发布，不沿用笼统的全局同意。
+需要配置修复时，按 [Harness 内审批后修复](repair.md) 接平台写入适配器；公司示例默认关闭。文档明确授权且你在 Harness 当前会话点击本方案“允许一次”才执行；群消息和聊天文字不授予权限。

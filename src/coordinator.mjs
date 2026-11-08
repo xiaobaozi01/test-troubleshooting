@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { confirmRepair, invalidateRepairs, formatRepairPlan, repairFooter } from './repair.mjs';
 
 const messageKey = m => `${m.groupId}:${m.id}`;
+export const manualDelivery = config => config.chat?.deliveryMode === 'draft' || Boolean(config.chat?.ownerId) && config.chat.ownerId === config.chat.botId;
 export class Coordinator {
   constructor({ store, chat, runner, config, log = console.log }) {
     Object.assign(this, { store, chat, runner, config, log });
@@ -19,7 +20,14 @@ export class Coordinator {
       const key = messageKey(m);
       if (Object.hasOwn(this.store.data.seen, key)) continue;
       this.store.data.seen[key] = null;
-      if (!this.config.chat.groupIds.includes(m.groupId) || m.senderId === this.config.chat.botId) continue;
+      if (!this.config.chat.groupIds.includes(m.groupId)) continue;
+      // With a shared account there is no reliable human/bot distinction in IM.
+      // Treat the owner's IM messages as references, never as approvals or model input.
+      if (manualDelivery(this.config) && m.senderId === this.config.chat.ownerId) {
+        this.store.data.seen[key] = this.taskForReply(m)?.id ?? null;
+        continue;
+      }
+      if (m.senderId === this.config.chat.botId) continue;
       let task = this.taskForReply(m);
       if (!task && m.mentions.includes(this.config.chat.ownerId)) {
         const id = `T-${randomUUID().slice(0, 8)}`;
@@ -48,6 +56,11 @@ export class Coordinator {
   }
   queueReply(task, replyTo, text, actionId) {
     const idempotencyKey = `${task.id}:${actionId}`;
+    if (manualDelivery(this.config)) {
+      (task.drafts ??= {})[idempotencyKey] ??= { idempotencyKey, replyTo, text, at: new Date().toISOString(), delivery: 'manual' };
+      task.latestDraft = task.drafts[idempotencyKey];
+      return;
+    }
     if (!this.store.data.outbox.some(x => x.idempotencyKey === idempotencyKey)) {
       this.store.data.outbox.push({ idempotencyKey, taskId: task.id, groupId: task.groupId, replyTo, text, senderId: this.config.chat.botId, sent: false });
     }
@@ -64,7 +77,7 @@ export class Coordinator {
     finally { this.polling = false; }
   }
   async flushOutbox() {
-    if (this.sending || this.stopped) return;
+    if (this.sending || this.stopped || manualDelivery(this.config)) return;
     this.sending = true;
     try {
       for (const item of this.store.data.outbox.filter(x => !x.sent)) {

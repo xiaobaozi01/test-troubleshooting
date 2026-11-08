@@ -22,6 +22,7 @@ export function confirmRepair(task, message, store, config, now = Date.now()) {
   if (!match) return null;
   const plan = task.repairPlans?.[match[1]];
   const refuse = text => ({ accepted: false, text });
+  if (config.repair?.approvalMode !== 'chat') return refuse('修复确认在 Harness 会话的一次性审批卡片中完成，群消息不授予执行权限。');
   if (message.groupId !== task.groupId) return refuse('确认消息不属于本任务所在群。');
   if (message.senderId !== config.chat.ownerId) return refuse('只有被 @ 的开发本人可以确认修复。');
   if (!config.repair?.enabled || !plan || plan.state !== 'awaiting_confirmation') return refuse('没有对应的待确认修复方案；已确认、已执行或失效的方案不能重复确认。');
@@ -43,6 +44,7 @@ export function invalidateRepairs(task, reason) {
 export class RepairEngine {
   constructor({ adapter, knowledge, config, store, now = Date.now }) {
     Object.assign(this, { adapter, knowledge, config, store, now }); this.running = new Map();
+    this.harnessGrants = new WeakSet();
   }
   target(environment, service) {
     if (!this.config.enabled || !this.config.environments?.includes(environment) || typeof service !== 'string' || !/^[a-zA-Z0-9_.-]{1,200}$/.test(service)) throw new Error('目标不在已启用的测试环境修复范围');
@@ -80,9 +82,47 @@ export class RepairEngine {
     await this.store.save();
     return plan;
   }
-  async execute(task, planId, message, signal) {
+  async executeInHarness(task, planId, message, context) {
     const plan = task.repairPlans?.[planId];
-    if (!plan || plan.platform !== (this.config.platformId ?? 'test-adapter') || plan.digest !== planDigest(plan) || !plan.approval || plan.approval.digest !== plan.digest || plan.approval.ownerId !== this.config.ownerId || message.senderId !== this.config.ownerId || message.groupId !== task.groupId || plan.approval.messageId !== message.id || plan.approval.groupId !== task.groupId) throw new Error('本轮没有开发本人对该平台和精确方案的有效确认');
+    if (this.config.approvalMode !== 'harness' || !plan || plan.platform !== (this.config.platformId ?? 'test-adapter') || plan.digest !== planDigest(plan) || context.agent?.session?.id !== task.sessionId || typeof context.callId !== 'string' || !context.callId) throw new Error('需要本任务真实 Harness 工具调用中的一次性审批');
+    this.target(plan.environment, plan.service);
+    if (plan.attemptedAt) return this.status(task, planId, context.signal);
+    if (plan.state !== 'awaiting_confirmation') return { planId, state: plan.state, note: '该方案不能重复发起审批；请核实状态或生成新方案。' };
+    if (this.now() >= Date.parse(plan.expiresAt)) { plan.state = 'stale'; await this.store.save(); return { planId, state: plan.state, note: '方案已过期，需要重新审阅确认。' }; }
+    const digest = plan.digest;
+    task.status = 'awaiting_confirmation';
+    plan.approvalRequestedAt = new Date(this.now()).toISOString();
+    await this.store.save();
+    const remaining = Math.max(1, Date.parse(plan.expiresAt) - this.now());
+    const signal = context.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining);
+    let outcome = 'unavailable';
+    context.waiting?.(true);
+    try {
+      outcome = await context.request?.({ agent: context.agent, toolName: 'troubleshoot_repair_execute', callId: context.callId, reason: formatRepairPlan(task.id, plan, 'harness'), signal }) ?? 'unavailable';
+    } catch (e) { plan.approvalError = redact(e.message); }
+    finally { context.waiting?.(false); }
+    plan.approvalOutcome = outcome;
+    if (outcome !== 'allowed-once' || signal.aborted || digest !== planDigest(plan) || plan.state !== 'awaiting_confirmation' || plan.cancelRequested || this.now() >= Date.parse(plan.expiresAt)) {
+      if (plan.state === 'awaiting_confirmation') plan.state = outcome === 'allowed-once' ? 'stale' : 'cancelled';
+      await this.store.save();
+      return { planId, state: plan.state, approvalOutcome: outcome, note: '没有取得当前方案的有效一次性审批，未执行修改或发布；不要自动重试审批。' };
+    }
+    const grant = Object.freeze({ planId, digest, sessionId: task.sessionId, callId: context.callId });
+    this.harnessGrants.add(grant);
+    plan.state = 'approved';
+    plan.approval = { channel: 'harness', ownerId: this.config.ownerId, digest, sessionId: task.sessionId, callId: context.callId, confirmedAt: new Date(this.now()).toISOString() };
+    await this.store.save();
+    try { return await this.execute(task, planId, message, signal, grant); }
+    finally { this.harnessGrants.delete(grant); }
+  }
+  async execute(task, planId, message, signal, grant) {
+    const plan = task.repairPlans?.[planId];
+    const local = this.config.approvalMode === 'harness';
+    const authority = local
+      ? this.harnessGrants.has(grant) && grant.planId === planId && grant.digest === plan?.digest && grant.sessionId === task.sessionId && plan?.approval?.channel === 'harness' && plan.approval.callId === grant.callId
+      : this.config.approvalMode === 'chat' && plan?.approval?.ownerId === this.config.ownerId && message.senderId === this.config.ownerId && message.groupId === task.groupId && plan.approval.messageId === message.id && plan.approval.groupId === task.groupId;
+    if (!plan || plan.platform !== (this.config.platformId ?? 'test-adapter') || plan.digest !== planDigest(plan) || !plan.approval || plan.approval.digest !== plan.digest || !authority) throw new Error('本轮没有开发本人对该平台和精确方案的有效确认');
+    if (local) this.harnessGrants.delete(grant);
     this.target(plan.environment, plan.service);
     if (['verified', 'verification_failed', 'stale', 'cancelled'].includes(plan.state)) return { planId, state: plan.state, verification: plan.verificationResult ?? null, note: '该方案不会再次写入；失败或变更需要重新出方案并确认。' };
     const target = `${plan.environment}/${plan.service}`;
@@ -146,16 +186,19 @@ export class RepairEngine {
 export async function createRepairEngine({ root, config, store, knowledge }) {
   if (!config.repair?.enabled) return null;
   const settings = config.repair;
+  const approvalMode = settings.approvalMode ?? 'harness';
+  if (!['harness', 'chat'].includes(approvalMode) || approvalMode === 'chat' && (config.chat.ownerId === config.chat.botId || config.chat.deliveryMode === 'draft')) throw new Error('同账号或草稿模式必须在 Harness 内审批，不能通过群消息确认');
   if (!knowledge || !Array.isArray(settings.allowedSources) || !settings.allowedSources.length || !Array.isArray(settings.environments) || !settings.environments.length || settings.environments.some(e => /prod|production|正式|生产/i.test(e)) || typeof settings.adapterModule !== 'string') throw new Error('修复需知识源、明确的测试环境和部署适配器；不能包含生产环境');
   const adapter = await (await import(pathToFileURL(path.resolve(root, settings.adapterModule)))).createRepairAdapter(settings.options ?? {});
   if (!['read', 'apply', 'getOperation', 'verify'].every(k => typeof adapter?.[k] === 'function') || !['conditionalWrite', 'idempotency', 'publish'].every(k => adapter?.capabilities?.[k] === true)) throw new Error('部署写入适配器必须支持版本条件写入、持久幂等、发布和验证接口');
   const platformId = createHash('sha256').update(JSON.stringify({ module: settings.adapterModule, options: settings.options ?? {} })).digest('hex');
-  return new RepairEngine({ adapter, store, knowledge, config: { ...settings, platformId, ownerId: config.chat.ownerId } });
+  return new RepairEngine({ adapter, store, knowledge, config: { ...settings, approvalMode, platformId, ownerId: config.chat.ownerId } });
 }
 
-export function formatRepairPlan(taskId, p) {
+export function formatRepairPlan(taskId, p, channel = 'chat') {
   const expires = new Date(p.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
-  return `#${taskId} 待确认修复 ${p.id}\n环境：${p.environment}；服务：${p.service}；配置版本：${p.revision}\n\n精确修改\n${p.changes.map(c => `${c.key}\n  修改前：${JSON.stringify(c.before)}\n  修改后：${JSON.stringify(c.after)}`).join('\n')}\n\n依据：${p.reason}\n文档：${p.basis.sourceId}/${p.basis.location}，版本 ${p.basis.version} [${p.basis.runbookEvidenceId}]\n现场快照：[${p.basis.snapshotEvidenceId}]\n\n执行：修改以上配置并发布到 ${p.environment}/${p.service}。\n验证：${p.verification}（检查：${p.checks.join(', ')}）\n失败处理：${p.recovery}\n\n尚未修改。有效期至 ${expires}（北京时间）。仅开发本人引用本条回复：/确认修复 ${p.id}\n不确认则不执行；文档或配置版本变化后需重新确认。`;
+  const confirmation = channel === 'harness' ? '请在当前 Harness 会话的审批卡片审阅此差异，点击“允许一次”后执行；群内消息或聊天中的“同意”不授予权限。' : `仅开发本人引用本条回复：/确认修复 ${p.id}`;
+  return `#${taskId} 待确认修复 ${p.id}\n环境：${p.environment}；服务：${p.service}；配置版本：${p.revision}\n\n精确修改\n${p.changes.map(c => `${c.key}\n  修改前：${JSON.stringify(c.before)}\n  修改后：${JSON.stringify(c.after)}`).join('\n')}\n\n依据：${p.reason}\n文档：${p.basis.sourceId}/${p.basis.location}，版本 ${p.basis.version} [${p.basis.runbookEvidenceId}]\n现场快照：[${p.basis.snapshotEvidenceId}]\n\n执行：修改以上配置并发布到 ${p.environment}/${p.service}。\n验证：${p.verification}（检查：${p.checks.join(', ')}）\n失败处理：停止继续修改，不自动回滚。恢复建议：${p.recovery}\n\n尚未修改。有效期至 ${expires}（北京时间）。${confirmation}\n不确认则不执行；文档或配置版本变化后需重新确认。`;
 }
 
 export function repairFooter(task) {

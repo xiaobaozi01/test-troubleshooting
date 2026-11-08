@@ -8,7 +8,7 @@
 export async function createAdapter(config) {
   return {
     async poll(cursor, signal) { /* 返回 { messages, nextCursor }；遵守取消信号 */ },
-    async send(reply, signal) { /* 返回 { id: '平台消息ID' }；遵守取消信号 */ },
+    async send(reply, signal) { /* 仅旧自动发送模式需要；返回 { id: '平台消息ID' } */ },
     async attachment(id) { /* 返回 { mediaType: 'image/png', data: '标准base64' } */ },
   };
 }
@@ -39,9 +39,11 @@ export async function createAdapter(config) {
 
 `mentions` 使用账号 ID，不按昵称或文本中的 @ 字符猜测。`replyTo` 必须转换为被回复消息的稳定 ID。若平台不支持引用，后续补充需要包含助手显示的任务编号，例如 `#T-1234abcd`。消息时间不等于故障时间。
 
-`send(reply)` 参数包含 `groupId`、`replyTo`、`text`、`senderId`、`taskId`、`idempotencyKey`。需要通过幂等键避免“发送已成功但响应丢失”时重复回复。平台没有幂等键时，适配器应先核对发送记录，再决定重试；必要时拆分平台长度限制内的消息并保持可核对的 ID。
+旧自动发送模式下，send(reply) 包含 groupId、replyTo、text、senderId、taskId、idempotencyKey，需通过幂等键或发送记录核对避免重发。同账号/草稿模式不会调用 send，可以不实现该方法。
 
-平台账号权限只由公司提供的正式接口决定。本项目使用原有 @开发 作为触发信号，通过接入账号回复，不假定能伪装为开发本人。
+公司当前只能使用开发本人的账号接入，因此 ownerId 与 botId 可相同。推荐 deliveryMode: "draft"：只读取群消息，追问、方案和最终结果留在 Harness 会话中，供本人转发；不会调用 send，即便状态文件里有旧待发送项也不会自动发送。同账号始终使用草稿模式，不依赖发送者 ID 猜测某条消息是你还是助手。
+
+此模式下你的群内发言不触发 Agent，也不能批准修复；带 #T-xxxxxxxx 或引用已知任务的发言会保留关联，便于测试引用后继续原任务。修复审批使用 Harness 会话原生一次性审批卡片，与公司 senderId 无关。只有旧的独立接入账号部署才使用自动发送模式。
 
 ## 当前模拟 HTTP 接口
 
