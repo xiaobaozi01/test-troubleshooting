@@ -1,14 +1,13 @@
 # Windows 公司电脑接入步骤
 
-当前公司接口尚未对接，不能只改地址就连通公司群。已验证的是 macOS 上真实 Harness 配合模拟接口；Windows 启动适配已加入，但还没有在 Windows 机器上运行验证。
+当前公司接口尚未对接，不能只改地址就连通公司群。推荐将插件装进日常 Harness，随其启动。已在 macOS 桌面版配合模拟接口验证；Windows 安装脚本采用 Node 文件操作，尚未在 Windows 机器运行验证。
 
 ## 1. 拷贝项目并先运行模拟版
 
-把项目放在例如 `C:\work\test-troubleshooting`，安装 Node.js 22+，使用公司已经安装的 DeepSeek Harness 配套 CLI。PowerShell 中执行：
+把项目放在例如 `C:\work\test-troubleshooting`，安装 Node.js 22+，打开公司已经使用的 DeepSeek Harness。PowerShell 中执行：
 
 ```powershell
 cd C:\work\test-troubleshooting
-dsh --version
 npm run mock
 ```
 
@@ -16,12 +15,12 @@ npm run mock
 
 ```powershell
 cd C:\work\test-troubleshooting
-npm start
+npm run install:desktop -- --config config/browser-demo.json
 ```
 
-若全局 `dsh` 版本不匹配，设置 `$env:DSH_CLI` 为当前桌面版配套 CLI 的实际路径，再启动。启动脚本支持通过 PowerShell 调用 `.cmd` 和 `.exe`。已验证接口版本为 0.2.2-rc.1；其他版本需要检查兼容性。
+安装脚本将本地插件入口加入现有 desktop profile，先备份再更新自己的配置块。Harness 重新加载配置后启动；未自动加载时重启应用。无需独立 CLI 进程或 npm start。已验证桌面接口版本为 0.2.2-rc.1。
 
-先打开 http://127.0.0.1:4317 测试模拟流程。公司数据接入前，确认排障会话确实连接内网模型。独立 profile 只自动复用默认模型选择和 Harness 原有凭证；**若内网连接依赖自定义 provider、端点配置或插件，需要先把相同连接配置接入独立 profile，或将插件加载到原有 Harness 运行上下文。不能只按模型名判断请求去了哪里。**
+先打开 http://127.0.0.1:4317 测试模拟流程。桌面模式直接复用该 Harness 现有的模型 provider、端点配置及凭据。公司数据接入前确认它已经连上内网模型。只有选择可选的独立 npm start 调试模式时，才需要另外处理自定义 provider 的配置复制。
 
 ## 2. 提供环境与服务信息
 
@@ -88,13 +87,12 @@ ssh -o BatchMode=yes qa-order 'docker logs --tail 20 order-service'
 
 真实群认证信息留在适配器使用的本地凭证机制中。模板的 `tokenEnv` 只是环境变量名；公司适配器要按公司实际认证协议读取它，不能认为填名字就完成认证。
 
-确认接口、SSH、服务目录以及内网模型路由后，在 PowerShell 启动：
+确认接口、SSH、服务目录以及内网模型路由后，在 PowerShell 更新桌面插件配置：
 
 ```powershell
-$env:TROUBLESHOOT_CONFIG = 'config/company.json'
-npm start
+npm run install:desktop -- --config config/company.json
 ```
 
-公司模式不需要运行模拟群服务。任务状态和证据保存在 `.local/company-tasks.json`，与模拟任务分开。首次连接从当前群游标开始，之后按已保存游标增量处理。电脑需保持运行并能访问公司网络。
+公司模式不需要运行模拟群服务，也不需要独立排障进程，只需保持 Harness 开启。任务状态和证据保存在 `.local/company-tasks.json`，与模拟任务分开。首次连接从当前群游标开始，之后按已保存游标增量处理。仅在终端设置的认证环境变量不会传入已运行的 Harness；认证与系统工具环境说明见 [桌面接入](desktop.md)。
 
 正式接入前先在专用测试群验证一个明确问题：@你的账号 → 追问 → SSH 查询 → 群回复；再加入日常测试群。

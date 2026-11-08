@@ -53,7 +53,7 @@ if (!bskPath) { try { const local = path.join(root, '.local/bin', process.platfo
 const patches = [
   ...(model ? [{ id: 'agent-default-model', config: model }] : []),
   ...(browserEntry ? [{ insert: [{ id: 'troubleshooting-browserskill', name: browserEntry, config: { bskPath, lazyTools: false, maxSessions: 3, sessionStateDirectory: path.join(root, '.local/bsk-starts') } }] }] : []),
-  { insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/plugin.mjs'), config: { root, configFile, ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] },
+  { insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/plugin.mjs'), config: { root, configFile, hostMode: 'standalone', ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] },
 ];
 const overlay = path.join(root, '.local/harness.patch.json');
 await writeFile(overlay, JSON.stringify(patches, null, 2), { mode: 0o600 });

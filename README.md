@@ -4,7 +4,9 @@
 
 Agent 循环、模型调用、会话历史和图片处理复用 Harness。本项目不维护另一套模型 API Key，也不自建 Agent 循环。
 
-## 现在可以直接体验
+推荐直接接入你日常打开的 Harness，安装一次后随宿主启动，默认10秒拉群消息，空闲时不调用模型，无需独立 `npm start`。公司配置准备好后执行 `npm run install:desktop -- --config config/company.json`。本机模拟可用 `config/browser-demo.json`，仅演示接口仍需 `npm run mock`。详见 [桌面 Harness 接入](docs/desktop.md)。
+
+## 独立调试模式
 
 已在本机 **DeepSeek Harness 桌面版 0.2.2-rc.1** 实际验证。全局 `dsh` 是旧版本时，启动脚本会优先使用桌面应用自带的 CLI。需要 Node.js 22 或以上，无需 npm install。
 
@@ -47,7 +49,7 @@ npm test
 
 ## 本机运行和模型配置
 
-`npm start` 创建独立的 `troubleshooting` profile，启动配套 Harness Web 运行时（127.0.0.1:4318）。保留桌面版日常配置；只读取源 profile 的默认模型选择，并通过 Harness 原有凭证存储使用连接。该 Web 运行时是 Harness 本身，不是额外的自研 AI 后端。
+推荐桌面模式直接使用现有运行上下文，模型和 BrowserSkill 无需复制。以下 `npm start` 是可选的独立调试模式：创建 `troubleshooting` profile，启动配套 Harness Web 运行时（127.0.0.1:4318）。保留桌面版日常配置；只读取源 profile 的默认模型选择，并通过 Harness 原有凭证存储使用连接。两种模式不能同时占用同一个任务状态文件。
 
 可配置启动环境变量：
 

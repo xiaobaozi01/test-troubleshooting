@@ -7,14 +7,14 @@
 ```js
 export async function createAdapter(config) {
   return {
-    async poll(cursor) { /* 返回 { messages, nextCursor } */ },
-    async send(reply) { /* 返回 { id: '平台消息ID' } */ },
+    async poll(cursor, signal) { /* 返回 { messages, nextCursor }；遵守取消信号 */ },
+    async send(reply, signal) { /* 返回 { id: '平台消息ID' }；遵守取消信号 */ },
     async attachment(id) { /* 返回 { mediaType: 'image/png', data: '标准base64' } */ },
   };
 }
 ```
 
-把公司配置文件中的 `chat.adapterModule` 指向模块路径（相对项目 root），使用 `TROUBLESHOOT_CONFIG=config/company.json npm start` 启动即可。也支持在 Harness 插件配置里提供 `chatAdapterModule`；例如 overlay 的插件配置为：
+把公司配置文件中的 `chat.adapterModule` 指向模块路径（相对项目 root），用 `npm run install:desktop -- --config config/company.json` 接入现有桌面 Harness。也支持在 Harness 插件配置里提供 `chatAdapterModule`；例如插件配置为：
 
 ```json
 { "root": "/path/to/project", "configFile": "config/company.json", "chatAdapterModule": "company/chat-adapter.mjs" }
@@ -82,6 +82,8 @@ SSH 复用本机 config、密钥及跳板机配置；使用 BatchMode，不弹�
 
 ## 安装方式
 
-本次调试通过 `npm start` 的独立 profile 和绝对路径 overlay 加载插件，不改现有桌面 profile。项目同时提供标准 `dsh.bundle.patch` 和 `cordis.patch.yml`，可打包后通过当前版本的插件管理器加载到已有 Harness（这条安装路径尚未在本机实际安装验证）。已有自定义模型 provider 时，这种方式可以直接复用其运行上下文。
+推荐 [桌面接入](desktop.md)：安装脚本在现有 profile 的用户 patch 中维护一个有标记的配置块，复用日常 Harness。插件注入 timer 服务，以 ctx.timeout 调度增量群轮询和退避，以 ctx.interval 维护标题；没有新消息时不唤醒模型。停用取消定时器与群请求，并等待任务退出后释放状态锁。自定义适配器应响应 signal；停止时已完成但响应未确认的发送仍按幂等键恢复。
+
+`npm start` 保留为独立 profile 的调试入口；先停用桌面配置，防止重复实例。项目还提供 dsh.bundle.patch 和 cordis.patch.yml 供标准包安装使用，该插件管理器安装路径尚未验证。
 
 公司协议、部署平台 API 和自定义模型 provider 都还没有真实样例，因此这些接入仍需回公司后验证；已完成的真实模型测试只使用本地模拟数据。

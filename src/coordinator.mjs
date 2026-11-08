@@ -5,6 +5,7 @@ export class Coordinator {
   constructor({ store, chat, runner, config, log = console.log }) {
     Object.assign(this, { store, chat, runner, config, log });
     this.polling = false; this.working = false; this.sending = false; this.failures = 0; this.stopped = false;
+    this.abort = new AbortController();
   }
   taskForReply(m) {
     const taskId = this.store.data.seen[`${m.groupId}:${m.replyTo}`];
@@ -49,24 +50,26 @@ export class Coordinator {
     if (this.polling || this.stopped) return;
     this.polling = true;
     try {
-      const result = await this.chat.poll(this.store.data.cursor);
+      const result = await this.chat.poll(this.store.data.cursor, this.abort.signal);
+      if (this.stopped) return;
       await this.ingest(result.messages, result.nextCursor);
       this.failures = 0;
-    } catch (e) { this.failures++; this.log(`轮询失败（将退避重试）：${e.message}`); }
+    } catch (e) { if (!this.stopped) { this.failures++; this.log(`轮询失败（将退避重试）：${e.message}`); } }
     finally { this.polling = false; }
   }
   async flushOutbox() {
-    if (this.sending) return;
+    if (this.sending || this.stopped) return;
     this.sending = true;
     try {
       for (const item of this.store.data.outbox.filter(x => !x.sent)) {
-        const result = await this.chat.send(item);
+        if (this.stopped) break;
+        const result = await this.chat.send(item, this.abort.signal);
         if (typeof result.id !== 'string') throw new Error('发送回复没有返回消息 ID');
         item.sent = true; item.messageId = result.id;
         this.store.data.seen[`${item.groupId}:${result.id}`] = item.taskId;
         await this.store.save();
       }
-    } catch (e) { this.log(`回复暂未发送（已保存在本地）：${e.message}`); }
+    } catch (e) { if (!this.stopped) this.log(`回复暂未发送（已保存在本地）：${e.message}`); }
     finally { this.sending = false; }
   }
   async workOnce() {
@@ -76,10 +79,11 @@ export class Coordinator {
     this.working = true;
     const message = task.messages.find(m => !m.handled);
     task.status = 'running'; delete task.error; delete task.failedAt;
-    await this.store.save();
     try {
+      await this.store.save();
+      if (this.stopped) return;
       const action = task.actions[message.id] ?? await this.runner.run(task, message);
-      if (['paused', 'closed'].includes(task.status)) return;
+      if (this.stopped || ['paused', 'closed'].includes(task.status)) return;
       if (!action || !['ask', 'finish'].includes(action.kind)) throw new Error('Agent 没有提交有效的追问或诊断结果');
       task.actions[message.id] = action;
       task.status = action.kind === 'ask' ? 'awaiting_input' : 'diagnosed';
@@ -88,26 +92,39 @@ export class Coordinator {
       message.handled = true;
       await this.store.save();
     } catch (e) {
-      if (['paused', 'closed'].includes(task.status)) return;
+      if (this.stopped || ['paused', 'closed'].includes(task.status)) return;
       task.status = 'failed'; task.error = e.message; task.failedAt = new Date().toISOString();
       this.log(`任务 ${task.id} 失败：${e.stack ?? e.message}`);
       this.queueReply(task, message.id, `#${task.id} 自动排查未完成：${e.message}\n开发可回复 /继续 重试，或接管人工排查。`, `error:${message.id}`);
       await this.store.save();
     } finally { this.working = false; }
   }
-  start() {
+  start(schedule) {
+    if (this.started) return;
+    if (typeof schedule !== 'function') throw new Error('轮询需要 Harness 宿主定时器');
+    if (this.stopped) throw new Error('已停止的轮询实例不能重新启动');
+    this.started = true;
     const cycle = async () => {
       if (this.stopped) return;
-      await this.pollOnce();
-      void this.workOnce().catch(e => this.log(`排障队列异常：${e.message}`));
-      void this.flushOutbox().catch(e => this.log(`发件队列异常：${e.message}`));
-      if (!this.stopped) this.timer = setTimeout(cycle, Math.min(this.config.pollIntervalMs * 2 ** Math.min(this.failures, 5), 60000));
+      try {
+        await this.pollOnce();
+        if (this.stopped) return;
+        if (!this.working) this.workPending = this.workOnce().catch(e => this.log(`排障队列异常：${e.message}`));
+        if (!this.sending) this.sendPending = this.flushOutbox().catch(e => this.log(`发件队列异常：${e.message}`));
+      } finally {
+        if (!this.stopped) this.cancelTimer = schedule(() => { this.cyclePending = cycle(); }, Math.min(this.config.pollIntervalMs * 2 ** Math.min(this.failures, 5), 60000));
+      }
     };
-    void cycle();
+    this.cyclePending = cycle();
   }
   async stop() {
-    this.stopped = true; clearTimeout(this.timer);
-    await this.runner.dispose?.();
+    if (this.stopPending) return this.stopPending;
+    this.stopped = true; this.cancelTimer?.(); this.abort.abort(new Error('排障插件已停用'));
+    this.stopPending = (async () => {
+      try { await this.runner.dispose?.(); }
+      finally { await Promise.allSettled([this.cyclePending, this.workPending, this.sendPending]); }
+    })();
+    return this.stopPending;
   }
 }
 

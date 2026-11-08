@@ -68,6 +68,7 @@ export class HarnessRunner {
     });
   }
   async getAgent(task) {
+    if (this.disposed) throw new Error('排障插件已停用');
     if (this.handles.has(task.id)) return this.handles.get(task.id).agent;
     const setup = async (scope) => this.register(scope, task);
     const live = this.ctx.agents.get(task.sessionId);
@@ -77,6 +78,7 @@ export class HarnessRunner {
     const handle = task.started
       ? await this.ctx.agents.resume({ resumeSessionId: task.sessionId, setup })
       : await this.ctx.agents.create({ sessionId: task.sessionId, meta: { cwd: this.root }, agentOptions: selection, setup });
+    if (this.disposed) { await handle.dispose(); throw new Error('排障插件已停用'); }
     this.handles.set(task.id, handle);
     if (ensureTaskTitle(this.ctx, task, handle.agent.session)) await this.ctx.sessions.flush(handle.agent.session);
     task.titleKnown = true;
@@ -85,6 +87,7 @@ export class HarnessRunner {
     return handle.agent;
   }
   async run(task, message) {
+    if (this.disposed) throw new Error('排障插件已停用');
     const syncAbort = new AbortController();
     this.preflights.set(task.id, syncAbort);
     const syncTimeout = setTimeout(() => syncAbort.abort(new Error('代码同步超时')), 120000);
@@ -95,7 +98,7 @@ export class HarnessRunner {
       await this.store.save();
       if (!sync.ready) throw new Error('代码未能同步到远端最新状态，已停止自动定位；请检查本地修改、跟踪分支或 Git 登录。同步详情已保存。');
     } finally { clearTimeout(syncTimeout); this.preflights.delete(task.id); }
-    if (['paused', 'closed'].includes(task.status)) return null;
+    if (this.disposed || ['paused', 'closed'].includes(task.status)) return null;
     const agent = await this.getAgent(task);
     const turn = { message, calls: 0, action: null };
     this.turns.set(task.id, turn);
@@ -118,6 +121,7 @@ export class HarnessRunner {
       }
       message.attempts = (message.attempts ?? 0) + 1;
       await this.store.save();
+      if (this.disposed) return null;
       agent.followup({ id: `qa-${message.groupId}-${message.id}-${message.attempts}`, role: 'user', source: { kind: 'qa-chat' }, content });
       await agent.whenIdle();
       await this.ctx.sessions.flush(agent.session);
@@ -128,6 +132,7 @@ export class HarnessRunner {
   }
   cancel(id) { this.preflights.get(id)?.abort(new Error('已取消代码同步')); this.handles.get(id)?.agent.cancel({ kind: 'user' }); }
   async dispose() {
+    this.disposed = true;
     for (const abort of this.preflights.values()) abort.abort(new Error('排障助手停止'));
     for (const handle of this.handles.values()) handle.agent.cancel({ kind: 'user' });
     for (const handle of this.handles.values()) await handle.dispose();
