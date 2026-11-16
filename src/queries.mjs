@@ -12,7 +12,7 @@ export function redact(text) {
     .replace(/\b(authorization|cookie|set-cookie)\s*[:=]\s*[^\r\n]*/gi, '$1: [REDACTED]')
     .replace(/\b(password|passwd|secret|api[_-]?key|access[_-]?token)\b(["']?\s*[:=]\s*["']?)[^\s,"';}]+/gi, '$1$2[REDACTED]');
 }
-export function selectLogRecords(text, { since, until, traceId, query = '' }) {
+export function selectLogRecords(text, { since, until, traceId, query = '', limit = 300 } = {}) {
   const records = [];
   let current;
   text.split('\n').forEach((line, i) => {
@@ -20,13 +20,18 @@ export function selectLogRecords(text, { since, until, traceId, query = '' }) {
     if (stamp) { current = { time: Date.parse(stamp[1]), lines: [] }; records.push(current); }
     if (current) current.lines.push({ line: i + 1, text: line });
   });
-  return records.filter(r => r.time >= Date.parse(since) && r.time <= Date.parse(until))
+  if (!records.length) {
+    return text.split('\n').filter(line => line.trim()).filter(line => !query || line.includes(query)).slice(-limit).map((text, i) => ({ line: i + 1, text }));
+  }
+  return records.filter(r => (!since || r.time >= Date.parse(since)) && (!until || r.time <= Date.parse(until)))
     .filter(r => !traceId || new RegExp(`\\b(?:traceId|trace_id|requestId|request_id)=${escapeRegex(traceId)}(?=\\s|$|[,;])`).test(r.lines.map(l => l.text).join('\n')))
     .filter(r => !query || r.lines.some(l => l.text.includes(query)))
-    .flatMap(r => r.lines).slice(0, 300);
+    .flatMap(r => r.lines).slice(-limit);
 }
 const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const safeName = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.@-]{0,200}$/.test(value);
+const absoluteLogPath = value => typeof value === 'string' && value.startsWith('/') && value.length <= 4096 && !/[\0\n\r]/.test(value);
+const quoteShell = value => `'${value.replaceAll("'", "'\\''")}'`;
 
 export class QueryTools {
   constructor({ root, catalog, mode, runCommand = execFileAsync }) {
@@ -107,21 +112,30 @@ export class QueryTools {
     }
     return { endpoint: requested, matches: matches.slice(0, 50), hints, repositories: d.code.repositories.map(r => ({ id: r.id, name: r.name })), warnings: d.warnings, truncated: d.code.truncated || matches.length > 50, scannedAt: new Date(d.code.builtAt).toISOString(), note: '匹配仅是代码线索，不证明实际部署映射；动态路由、网关改写需用代码上下文及日志核实。未关联实例时可用 repository 参数查代码，无需人工维护接口表。' };
   }
-  async logs(args, signal) {
-    const { environment, service, since, until, traceId, query } = args;
-    const s = await this.service(environment, service, args.instanceId, signal);
-    const start = Date.parse(since), end = Date.parse(until);
-    if (![since, until].every(v => typeof v === 'string' && /(?:Z|[+-]\d\d:\d\d)$/.test(v)) || !Number.isFinite(start) || !Number.isFinite(end) || end < start || end - start > 15 * 60000) throw new Error('日志窗口必须包含时区，且不超过 15 分钟');
-    let text;
-    if (this.mode === 'mock') text = await readFile(path.resolve(this.root, s.logFile), { encoding: 'utf8', signal });
-    else {
-      if (!safeName(s.host) || !safeName(s.container)) throw new Error('SSH 主机或容器名无效');
-      // Only administrator-configured SSH aliases and validated names reach the remote shell.
-      const command = `docker logs --timestamps --since '${new Date(start).toISOString()}' --until '${new Date(end).toISOString()}' --tail 2000 '${s.container}' 2>&1`;
-      const result = await this.runCommand('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '--', s.host, command], { signal, timeout: 15000, maxBuffer: 2 * 1024 * 1024 });
-      text = normalizeDockerLogs(result.stdout);
+  async logFile(args, signal) {
+    const { environment, service, instanceId, path: logPath, since, until, traceId, query, lines = 300 } = args;
+    const s = await this.service(environment, service, instanceId, signal);
+    if (!Number.isInteger(lines) || lines < 1 || lines > 500) throw new Error('日志行数需为 1–500');
+    let start, end;
+    if (since !== undefined || until !== undefined) {
+      start = Date.parse(since); end = Date.parse(until);
+      if (![since, until].every(v => typeof v === 'string' && /(?:Z|[+-]\d\d:\d\d)$/.test(v)) || !Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error('日志时间窗口必须成对包含时区，且结束时间不早于开始时间');
     }
-    return { service, environment, host: s.host, container: s.container, correlation: traceId ? 'request-id' : 'candidate-by-time-and-fields', lines: selectLogRecords(text, { since, until, traceId, query }).map(l => ({ ...l, text: redact(l.text) })), note: '仅查询当前容器可获取日志；空结果不能证明服务没有异常。最多返回 300 行。' };
+    let text, shownPath;
+    if (this.mode === 'mock') {
+      if (!s.logFile) throw new Error('模拟服务未配置日志文件');
+      shownPath = s.logFile;
+      text = await readFile(path.resolve(this.root, s.logFile), { encoding: 'utf8', signal });
+    } else {
+      if (!absoluteLogPath(logPath)) throw new Error('请提供服务器上日志文件的绝对路径');
+      if (!safeName(s.host)) throw new Error('SSH 主机名无效');
+      // Read-only tail. The path is shell-quoted but otherwise unrestricted.
+      const command = `tail -c 2097152 -- ${quoteShell(logPath)} 2>&1`;
+      const result = await this.runCommand('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '--', s.host, command], { signal, timeout: 15000, maxBuffer: 3 * 1024 * 1024 });
+      text = normalizeDockerLogs(result.stdout); shownPath = logPath;
+    }
+    const selected = selectLogRecords(text, { since, until, traceId, query, limit: lines });
+    return { service, environment, host: s.host, path: shownPath, lines: selected.map(l => ({ ...l, text: redact(l.text) })), note: '读取日志文件尾部最多 2 MiB；没有可识别时间戳的日志不按时间过滤。空结果不能证明服务没有异常。' };
   }
   async status({ environment, service, instanceId: selectedInstance }, signal) {
     const s = await this.service(environment, service, selectedInstance, signal);

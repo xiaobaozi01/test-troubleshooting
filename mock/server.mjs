@@ -39,7 +39,6 @@ const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     if (origin && ![`http://127.0.0.1:${port}`, `http://localhost:${port}`].includes(origin)) return json(res, { error: 'invalid origin' }, 403);
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
-    if (await deployment.handleRepair(req, res, url)) return;
     if (await deployment.handle(req, res, url)) return;
     if (req.method === 'GET' && url.pathname === '/deployment-audit') return json(res, deployment.audit);
     if (req.method === 'GET' && url.pathname === '/') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(await readFile(path.join(root, 'mock/index.html'))); }

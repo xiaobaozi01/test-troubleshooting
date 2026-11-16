@@ -67,7 +67,7 @@ test('失败保留任务并回复故障原因；用户可继续，不默默丢�
 });
 test('日志按请求关联，保留多行 Python 堆栈并排除无关请求', async () => {
   const q = new QueryTools({ root, catalog, mode: 'mock' });
-  const result = await q.logs({ environment: 'test', service: 'stock-service', since: '2026-11-09T01:59:55+08:00', until: '2026-11-09T02:00:05+08:00', traceId: 'demo-order-101' });
+  const result = await q.logFile({ environment: 'test', service: 'stock-service', since: '2026-11-09T01:59:55+08:00', until: '2026-11-09T02:00:05+08:00', traceId: 'demo-order-101' });
   assert.ok(result.lines.some(x => x.text.startsWith('Traceback')));
   assert.ok(result.lines.some(x => x.text.includes('CACHE_NAMESPACE')));
   assert.ok(!result.lines.some(x => x.text.includes('OTHER-SKU')));
@@ -76,7 +76,7 @@ test('traceId 必须完整匹配；时间窗不允许无时区或超长查询', 
   const result = selectLogRecords('2026-11-09T02:00:00Z ERROR traceId=abc-123 bad\n2026-11-09T02:00:00Z INFO traceId=abc good', { since: '2026-11-09T01:59:00Z', until: '2026-11-09T02:01:00Z', traceId: 'abc' });
   assert.equal(result.length, 1); assert.match(result[0].text, /good/);
   const q = new QueryTools({ root, catalog, mode: 'mock' });
-  await assert.rejects(q.logs({ environment: 'test', service: 'stock-service', since: '2026-11-09T02:00:00', until: '2026-11-09T02:00:05' }), /时区/);
+  await assert.rejects(q.logFile({ environment: 'test', service: 'stock-service', since: '2026-11-09T02:00:00', until: '2026-11-09T02:00:05' }), /时区/);
 });
 test('SSH 命令只查询配置中的容器，恶意名称不会进入远程 Shell', async () => {
   let calls = 0;
@@ -109,15 +109,32 @@ test('Docker 每行时间戳不会切断同一异常的堆栈', () => {
   const selected = selectLogRecords(logs, { since: '2026-11-08T17:59:00Z', until: '2026-11-08T18:01:00Z', traceId: 'abc' });
   assert.equal(selected.length, 4); assert.match(selected.at(-1).text, /RuntimeError/);
 });
-test('查询预算耗尽仍允许提交追问，避免模型陷入工具错误循环', async () => {
+test('查询工具不再受次数预算限制，仍可提交追问', async () => {
   const tools = new Map();
-  const runner = new HarnessRunner({ config: { maxToolCalls: 1 }, queries: { services: () => ({ services: [] }) }, store: { save: async () => {} }, skill: '' });
+  const runner = new HarnessRunner({ config: {}, queries: { services: () => ({ services: [] }) }, store: { save: async () => {} }, skill: '' });
   const task = { id: 'T-1', evidence: {}, calls: [], actions: {} };
   await runner.register({ tools: { restrict() {}, register: def => tools.set(def.name, def) }, systemPrompt: { section() {} } }, task);
-  runner.turns.set(task.id, { message: { id: 'm-1' }, calls: 0 });
+  runner.turns.set(task.id, { message: { id: 'm-1' } });
   const exec = { signal: new AbortController().signal };
-  await tools.get('troubleshoot_services').execute({}, exec);
-  await assert.rejects(tools.get('troubleshoot_services').execute({}, exec), /上限/);
+  for (let i = 0; i < 5; i++) await tools.get('troubleshoot_services').execute({}, exec);
   const result = await tools.get('troubleshoot_ask').execute({ question: '请补充故障发生时间' }, exec);
   assert.equal(result.accepted, true); assert.equal(task.actions['m-1'].kind, 'ask');
+});test('远端日志文件只要求绝对路径，并通过固定 tail 读取', async () => {
+  const calls = [];
+  const q = new QueryTools({ root: process.cwd(), mode: 'ssh', catalog: { environments: ['test'], hosts: [], services: [], repositoryRoots: [] }, runCommand: async (cmd, args) => { calls.push([cmd, args]); return { stdout: '2026-11-09T03:00:00+08:00 ERROR boom\n' }; } });
+  q.service = async () => ({ host: 'qa-order', container: 'order-service' });
+  await assert.rejects(q.logFile({ environment: 'test', service: 'order-service', path: 'relative.log' }), /绝对路径/);
+  const result = await q.logFile({ environment: 'test', service: 'order-service', path: '/var/log/app/error log.log' });
+  assert.ok(result.lines.some(line => /boom/.test(line.text)));
+  assert.match(calls[0][1].at(-1), /tail -c 2097152 -- '\/var\/log\/app\/error log\.log'/);
 });
+
+test('注册远端日志文件工具，不再注册 docker logs 工具', async () => {
+  const tools = new Map();
+  const runner = new HarnessRunner({ config, queries: {}, chat: {}, root, skill: '', browser: null, knowledge: null });
+  await runner.register({ tools: { restrict() {}, register: def => tools.set(def.name, def) }, systemPrompt: { section() {} } }, { id: 'T-tools', evidence: {}, calls: [] });
+  assert.ok(tools.has('troubleshoot_log_file'));
+  assert.ok(!tools.has('troubleshoot_logs'));
+});
+
+

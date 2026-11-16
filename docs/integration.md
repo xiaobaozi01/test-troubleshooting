@@ -39,11 +39,11 @@ export async function createAdapter(config) {
 
 `mentions` 使用账号 ID，不按昵称或文本中的 @ 字符猜测。`replyTo` 必须转换为被回复消息的稳定 ID。若平台不支持引用，后续补充需要包含助手显示的任务编号，例如 `#T-1234abcd`。消息时间不等于故障时间。
 
-send(reply) 包含 groupId、replyTo、text、senderId、taskId、idempotencyKey，自动模式需实现它，并通过幂等键或发送记录核对避免重发。send 必须返回实际消息 ID，轮询中的引用 ID 也必须与其一致。只使用 deliveryMode: "draft" 时才不会调用 send。
+send(reply) 包含 groupId、replyTo、text、senderId、taskId、idempotencyKey，自动模式需实现它，并通过幂等键或发送记录核对避免重发。send 必须返回实际消息 ID，轮询中的引用 ID 也必须与其一致。每条追问和最终报告都会调用 send。
 
-公司同账号设置 ownerId 与 botId 为同一个账号，显式使用 deliveryMode: "auto"：追问和最终报告通过你的账号自动发回原群并引用原消息。修复方案的审批在 Harness 中进行，不通过群消息确认。company.example.json 已采用这个设置；未指定投递方式的旧同账号配置仍保留草稿行为，升级时明确改成 auto。
+公司同账号设置 ownerId 与 botId 为同一个账号：追问和最终报告通过你的账号自动发回原群并引用原消息。
 
-同账号下来自你账号的群消息不触发 Agent，也不能批准修复，包括插件自身回显和你的人工发言；它们只保留任务关联。已知发送回执 ID、发送关联键、正文 #T-xxxxxxxx 或引用已知任务可用于关联，测试引用追问补充后继续原任务。修复仍使用 Harness 原生一次性审批。
+同账号下来自你账号的群消息不触发 Agent，包括插件自身回显和你的人工发言；它们只保留任务关联。已知发送回执 ID、发送关联键、正文 #T-xxxxxxxx 或引用已知任务可用于关联，测试引用追问补充后继续原任务。
 
 如果平台支持 clientMessageId 或类似消息扩展字段，发送时传入 idempotencyKey，轮询回显时映射为可选的 clientMessageId。这样即使回显早于发送回执、或回执丢失且平台修改了显示文本，也能归回原任务。没有此字段时必须保留正文任务编号或引用关系作为回执前的关联依据；不要删掉这些信息。回显不直接当成发送成功，重试仍使用同一幂等键并由适配器保证不重发。
 
@@ -70,7 +70,7 @@ send(reply) 包含 groupId、replyTo、text、senderId、taskId、idempotencyKey
 }
 ```
 
-工具查询配置主机的 `docker ps -a --format '{{json .}}'`，优先用 Compose service 标签识别服务，否则使用镜像名作为候选 ID。多副本各有稳定 instanceId；不指定实例的多副本日志查询会拒绝并列出候选。只查询请求的环境，每批最多并发4台主机。
+工具查询配置主机的 `docker ps -a --format '{{json .}}'`，优先用 Compose service 标签识别服务，否则使用镜像名作为候选 ID。多副本各有稳定 instanceId；不指定实例的多副本日志文件查询会拒绝并列出候选。只查询请求的环境，每批最多并发4台主机。
 
 命令输出约定参考 [Docker 容器列表文档](https://docs.docker.com/reference/cli/docker/container/ls/)，Spring 类与方法映射的组合参考 [Spring 映射请求文档](https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-requestmapping.html)。本项目仅静态提取常见字面量写法，不等同于框架运行时解析器。
 
@@ -80,7 +80,7 @@ send(reply) 包含 groupId、replyTo、text、senderId、taskId、idempotencyKey
 
 索引和容器发现缓存30秒，工具可 `refresh=true` 强制更新；重启后重建。代码扫描跳过构建产物和符号链接，最多访问10000个文件、5000个目录、深度25、读取32MiB源码，单文件上限1MiB。命中扫描边界或访问失败时返回 truncated/warnings，不把结果当作完整目录。代码静态提取不覆盖表达式、继承路由或跨文件动态注册；候选需通过上下文与日志确认。
 
-SSH 复用本机 config、密钥及跳板机配置；使用 BatchMode，不弹交互密码框。当前固定操作包括容器发现、限定时间的 docker logs、容器 .State，不接受任意远程命令。只写文件或没有可识别时间戳的日志仍需适配。
+SSH 复用本机 config、密钥及跳板机配置；使用 BatchMode，不弹交互密码框。当前固定操作包括容器发现、读取日志文件尾部、容器 `.State`，不接受任意远程命令。日志文件路径由知识源或用户提供；没有可识别时间戳的日志不按时间过滤。
 
 部署平台数据导入尚未实现，待公司接口明确后可替换主机/部署信息来源；现在无需人工整理平台中的全部接口，也不依赖构建平台。
 

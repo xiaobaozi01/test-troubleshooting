@@ -90,3 +90,12 @@ test('同步失败时不创建Agent、不调用模型，保存同步证据', asy
   assert.equal(created, false); assert.equal(task.repositorySync.ready, false);
   assert.equal(Object.values(task.evidence)[0].kind, 'repository-sync');
 });
+
+test('设置关闭排障前同步时跳过仓库同步并保存跳过证据', async () => {
+  const runner = new HarnessRunner({ config: { repositorySync: false }, queries: { prepareForDiagnosis: async () => { throw new Error('不应调用同步'); } }, store: { save: async () => {} } });
+  const task = { id: 'T-skip', evidence: {}, status: 'paused' };
+  assert.equal(await runner.run(task, {}), null);
+  assert.equal(task.repositorySync.skipped, true);
+  assert.equal(task.repositorySync.ready, true);
+  assert.equal(Object.values(task.evidence)[0].kind, 'repository-sync');
+});

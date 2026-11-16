@@ -74,16 +74,16 @@ Host qa-order
 ```powershell
 ssh qa-order
 ssh -o BatchMode=yes qa-order 'docker ps --format "{{.Names}}"'
-ssh -o BatchMode=yes qa-order 'docker logs --tail 20 order-service'
+ssh -o BatchMode=yes qa-order 'tail -c 2097152 -- /var/log/app/order-service.log'
 ```
 
-如果密钥有口令，先通过公司现有的 ssh-agent 加载密钥；不能在每次查询时弹出密码框。若你的日常终端与插件使用不同的 SSH 客户端/agent，需要先让系统 `ssh` 的 BatchMode 查询成功。账号须能执行对应 Docker 查询；当前工具不自动添加 sudo。
+如果密钥有口令，先通过公司现有的 ssh-agent 加载密钥；不能在每次查询时弹出密码框。若你的日常终端与插件使用不同的 SSH 客户端/agent，需要先让系统 `ssh` 的 BatchMode 查询成功。账号须能执行对应 Docker 查询并读取日志文件；当前工具不自动添加 sudo。
 
 纯密码、验证码和交互式堡垒机目前没有实现自动登录；因为你同时支持密钥，可以优先用密钥方式接入。
 
 ## 4. 公司群适配完成后再切真实模式
 
-将公司拉消息、下载截图和发送回复接口封装到 company/chat-adapter.mjs。填写群 ID，ownerId 与 botId 都是你的账号，deliveryMode 使用 auto；插件通过此账号自动追问并发送结果。发送需返回实际消息 ID、支持幂等，并保留任务编号或发送关联键，契约见 docs/integration.md。修复仍在 Harness 中确认。
+将公司拉消息、下载截图和发送回复接口封装到 company/chat-adapter.mjs。填写群 ID，ownerId 与 botId 都是你的账号；插件通过此账号自动追问并发送结果。发送需返回实际消息 ID、支持幂等，并保留任务编号或发送关联键，契约见 docs/integration.md。修复仍在 Harness 中确认。
 
 真实群认证信息留在适配器使用的本地凭证机制中。模板的 `tokenEnv` 只是环境变量名；公司适配器要按公司实际认证协议读取它，不能认为填名字就完成认证。
 
@@ -95,6 +95,5 @@ npm run install:desktop -- --config config/company.json
 
 公司模式不需要运行模拟群服务，也不需要独立排障进程，只需保持 Harness 开启。任务状态和证据保存在 `.local/company-tasks.json`，与模拟任务分开。首次连接从当前群游标开始，之后按已保存游标增量处理。仅在终端设置的认证环境变量不会传入已运行的 Harness；认证与系统工具环境说明见 [桌面接入](desktop.md)。
 
-正式接入前先在专用测试群验证：测试 @你 → 自动追问 → 测试引用补充 → Harness 排障 → 通过你的账号自动发报告；确认自己的回显不触发新任务。修复时增加 Harness 内一次性审批和发布后验证。
+正式接入前先在专用测试群验证：测试 @你 → 自动追问 → 测试引用补充 → Harness 排障 → 通过你的账号自动发报告；确认自己的回显不触发新任务。
 
-需要配置修复时，按 [Harness 内审批后修复](repair.md) 接平台写入适配器；公司示例默认关闭。文档明确授权且你在 Harness 当前会话点击本方案“允许一次”才执行；群消息和聊天文字不授予权限。

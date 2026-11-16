@@ -43,17 +43,24 @@ const configFile = process.env.TROUBLESHOOT_CONFIG ?? 'config/demo.json';
 const runConfig = JSON.parse(await readFile(path.resolve(root, configFile), 'utf8'));
 if (runConfig.mode === 'ssh' && !model) throw new Error('公司模式未能读取源 profile 的模型选择，请先接入并确认内网模型，避免回退到默认模型。');
 let browserSkillDirectory, browserEntry;
-if (runConfig.deploymentBackend?.enabled) {
-  const entry = runConfig.deploymentBackend.pluginEntry;
-  browserEntry = entry ? path.resolve(root, entry) : createRequire(path.join(dshHome, 'profiles', sourceProfile, 'package.json')).resolve('@wxg-prc-cpg/browser-skill-dsh-plugin');
+try {
+  browserEntry = createRequire(path.join(dshHome, 'profiles', sourceProfile, 'package.json')).resolve('@wxg-prc-cpg/browser-skill-dsh-plugin');
   browserSkillDirectory = path.resolve(path.dirname(browserEntry), '..');
+} catch {
+  console.warn('未找到 BrowserSkill，独立调试不加载部署后台工具。');
 }
-let bskPath = process.env.BSK_PATH ?? runConfig.deploymentBackend?.bskPath;
+let bskPath = process.env.BSK_PATH;
 if (!bskPath) { try { const local = path.join(root, '.local/bin', process.platform === 'win32' ? 'bsk.exe' : 'bsk'); await access(local); bskPath = local; } catch { bskPath = 'bsk'; } }
 const patches = [
   ...(model ? [{ id: 'agent-default-model', config: model }] : []),
   ...(browserEntry ? [{ insert: [{ id: 'troubleshooting-browserskill', name: browserEntry, config: { bskPath, lazyTools: false, maxSessions: 3, sessionStateDirectory: path.join(root, '.local/bsk-starts') } }] }] : []),
-  { insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/plugin.mjs'), config: { root, configFile, hostMode: 'standalone', ...(runConfig.runtimeFile ? { runtimeFile: runConfig.runtimeFile } : {}), ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] },
+  { insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/plugin.mjs'), config: {
+    root, configFile, hostMode: 'standalone',
+    pollIntervalMs: runConfig.pollIntervalMs ?? 10000,
+    ...(Array.isArray(runConfig.chat?.groupIds) && runConfig.chat.groupIds.length ? { chatGroupIds: runConfig.chat.groupIds } : {}),
+    ...(runConfig.runtimeFile ? { runtimeFile: runConfig.runtimeFile } : {}),
+    ...(browserSkillDirectory ? { browserSkillDirectory } : {}),
+  } }] },
 ];
 const overlay = path.join(root, '.local/harness.patch.json');
 await writeFile(overlay, JSON.stringify(patches, null, 2), { mode: 0o600 });

@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { confirmRepair, invalidateRepairs, formatRepairPlan, repairFooter } from './repair.mjs';
 
 const messageKey = m => `${m.groupId}:${m.id}`;
 export const sharedAccount = config => Boolean(config.chat?.ownerId) && config.chat.ownerId === config.chat.botId;
-export const manualDelivery = config => config.chat?.deliveryMode === 'draft' || config.chat?.deliveryMode !== 'auto' && sharedAccount(config);
 export class Coordinator {
   constructor({ store, chat, runner, config, log = console.log }) {
     Object.assign(this, { store, chat, runner, config, log });
@@ -24,7 +22,7 @@ export class Coordinator {
       if (!this.config.chat.groupIds.includes(m.groupId)) continue;
       // Outgoing echoes may arrive before send() returns, or after its response is lost.
       // Shared-account IM is never an approval channel or new owner-authored model input.
-      if ((sharedAccount(this.config) || manualDelivery(this.config)) && m.senderId === this.config.chat.ownerId) {
+      if (sharedAccount(this.config) && m.senderId === this.config.chat.ownerId) {
         const outgoing = this.store.data.outbox.find(item => item.groupId === m.groupId && (item.messageId === m.id || typeof m.clientMessageId === 'string' && item.idempotencyKey === m.clientMessageId));
         const known = outgoing && this.store.data.tasks[outgoing.taskId];
         this.store.data.seen[key] = known?.groupId === m.groupId ? known.id : this.taskForReply(m)?.id ?? null;
@@ -39,14 +37,9 @@ export class Coordinator {
       if (!task) continue; // Never assign an unrelated group message by guessing.
       this.store.data.seen[key] = task.id;
       const command = m.text.trim();
-      const confirmation = confirmRepair(task, m, this.store, this.config);
-      if (confirmation && !confirmation.accepted) {
-        this.queueReply(task, m.id, `#${task.id} ${confirmation.text}`, `repair-confirm:${m.id}`);
-        continue;
-      }
       if (m.senderId === this.config.chat.ownerId && ['/暂停', '/继续', '/结束'].includes(command)) {
         task.status = { '/暂停': 'paused', '/继续': 'queued', '/结束': 'closed' }[command];
-        if (command !== '/继续') { invalidateRepairs(task, command); this.runner.cancel?.(task.id); }
+        if (command !== '/继续') this.runner.cancel?.(task.id);
         this.queueReply(task, m.id, `任务 #${task.id} ${command.slice(1)}。`, `control:${m.id}`);
         continue;
       }
@@ -59,11 +52,6 @@ export class Coordinator {
   }
   queueReply(task, replyTo, text, actionId) {
     const idempotencyKey = `${task.id}:${actionId}`;
-    if (manualDelivery(this.config)) {
-      (task.drafts ??= {})[idempotencyKey] ??= { idempotencyKey, replyTo, text, at: new Date().toISOString(), delivery: 'manual' };
-      task.latestDraft = task.drafts[idempotencyKey];
-      return;
-    }
     if (!this.store.data.outbox.some(x => x.idempotencyKey === idempotencyKey)) {
       this.store.data.outbox.push({ idempotencyKey, taskId: task.id, groupId: task.groupId, replyTo, text, senderId: this.config.chat.botId, sent: false });
     }
@@ -80,7 +68,7 @@ export class Coordinator {
     finally { this.polling = false; }
   }
   async flushOutbox() {
-    if (this.sending || this.stopped || manualDelivery(this.config)) return;
+    if (this.sending || this.stopped) return;
     this.sending = true;
     try {
       for (const item of this.store.data.outbox.filter(x => !x.sent)) {
@@ -111,10 +99,10 @@ export class Coordinator {
       if (this.stopped) return;
       const action = task.actions[message.id] ?? await this.runner.run(task, message);
       if (this.stopped || ['paused', 'closed'].includes(task.status)) return;
-      if (!action || !['ask', 'finish', 'repair-proposal'].includes(action.kind)) throw new Error('Agent 没有提交有效的追问、诊断或修复方案');
+      if (!action || !['ask', 'finish'].includes(action.kind)) throw new Error('Agent 没有提交有效的追问或诊断');
       task.actions[message.id] = action;
-      task.status = action.kind === 'ask' ? 'awaiting_input' : action.kind === 'repair-proposal' ? 'awaiting_confirmation' : 'diagnosed';
-      const text = action.kind === 'ask' ? `#${task.id} 需要补充信息：\n${action.question}` : action.kind === 'repair-proposal' ? formatRepairPlan(task.id, task.repairPlans[action.planId]) : formatReport(task.id, action, task);
+      task.status = action.kind === 'ask' ? 'awaiting_input' : 'diagnosed';
+      const text = action.kind === 'ask' ? `#${task.id} 需要补充信息：\n${action.question}` : formatReport(task.id, action);
       this.queueReply(task, message.id, text, `result:${message.id}`);
       message.handled = true;
       await this.store.save();
@@ -155,7 +143,7 @@ export class Coordinator {
   }
 }
 
-export function formatReport(id, action, task) {
+export function formatReport(id, action) {
   const facts = action.findings.map(f => `- ${f.statement} [${f.evidenceIds.join(', ')}]`).join('\n');
-  return `#${id} 排障结果\n${action.summary}\n\n已确认事实\n${facts || '暂无'}\n\n候选原因\n${action.hypotheses.map(x => `- ${x}`).join('\n') || '无额外推测'}\n\n建议处理与验证\n${action.nextSteps.map(x => `- ${x}`).join('\n')}\n\n限制\n${action.limitations.map(x => `- ${x}`).join('\n') || '无额外说明'}\n\n${repairFooter(task)}`;
+  return `#${id} 排障结果\n${action.summary}\n\n已确认事实\n${facts || '暂无'}\n\n候选原因\n${action.hypotheses.map(x => `- ${x}`).join('\n') || '无额外推测'}\n\n建议处理与验证\n${action.nextSteps.map(x => `- ${x}`).join('\n')}\n\n限制\n${action.limitations.map(x => `- ${x}`).join('\n') || '无额外说明'}`;
 }

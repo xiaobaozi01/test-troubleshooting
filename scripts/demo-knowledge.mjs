@@ -20,7 +20,7 @@ while (Date.now() < deadline) {
     if (!task.calls.some(c => c.tool === 'troubleshoot_knowledge_search') || !task.calls.some(c => c.tool === 'troubleshoot_knowledge_read')) throw new Error('缺少实际知识检索或阅读');
     const references = report.findings.flatMap(f => f.evidenceIds);
     if (!references.some(id => task.evidence[id]?.kind === 'knowledge-document')) throw new Error('没有引用实际文档正文证据');
-    if (task.calls.some(c => ['troubleshoot_logs', 'troubleshoot_status', 'troubleshoot_find_endpoint', 'troubleshoot_code_read', 'troubleshoot_code_search'].includes(c.tool) || c.tool.startsWith('bsk_'))) throw new Error('资料问答触发了不必要的运行查询');
+    if (task.calls.some(c => ['troubleshoot_log_file', 'troubleshoot_status', 'troubleshoot_find_endpoint', 'troubleshoot_code_read', 'troubleshoot_code_search'].includes(c.tool) || c.tool.startsWith('bsk_'))) throw new Error('资料问答触发了不必要的运行查询');
     if (!JSON.stringify(report).includes('15')) throw new Error('未依据演示文档中的处理步骤回答');
     await writeFile('.local/knowledge-demo-result.json', JSON.stringify({ taskId: task.id, report, calls: task.calls, evidence: task.evidence }, null, 2));
     console.log(`通过：${task.id} 实际检索、阅读并引用文档，无运行日志或浏览器查询。`);

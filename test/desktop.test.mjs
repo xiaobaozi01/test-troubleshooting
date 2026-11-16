@@ -95,7 +95,7 @@ test('桌面 BrowserSkill 复用现有 bundle，只追加配置；没有 CLI 覆
   await writeFile(path.join(directory, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['@wxg-prc-cpg/browser-skill-dsh-plugin'] } } }));
   const original = '- id: browserskill\n  config:\n    bskPath: /native/bsk\n    maxSessions: 5\n';
   await writeFile(path.join(directory, 'cordis.patch.yml'), original);
-  await writeFile(path.join(root, 'demo.json'), JSON.stringify({ mode: 'mock', deploymentBackend: { enabled: true } }));
+  await writeFile(path.join(root, 'demo.json'), JSON.stringify({ mode: 'mock' }));
   const savedEnv = process.env.BSK_PATH;
   delete process.env.BSK_PATH;
   t.after(() => { if (savedEnv === undefined) delete process.env.BSK_PATH; else process.env.BSK_PATH = savedEnv; });
@@ -132,7 +132,7 @@ test('插件资源清理等待队列退出、释放状态锁，同一宿主可�
   await writeFile(path.join(root, 'chat.mjs'), 'export function createAdapter(){return {poll:async()=>({messages:[],nextCursor:"latest"})}}');
   await mkdir(path.join(root, '.agents', 'skills', 'test-environment-troubleshooting'), { recursive: true });
   await writeFile(path.join(root, '.agents', 'skills', 'test-environment-troubleshooting', 'SKILL.md'), 'test workflow');
-  await writeFile(path.join(root, 'config.json'), JSON.stringify({ ...config, chat: { ...config.chat, adapterModule: 'chat.mjs' }, mode: 'mock', turnTimeoutMs: 1000, maxToolCalls: 5, stateFile: '.local/state.json', catalogFile: 'catalog.json' }));
+  await writeFile(path.join(root, 'config.json'), JSON.stringify({ ...config, chat: { ...config.chat, adapterModule: 'chat.mjs' }, mode: 'mock', stateFile: '.local/state.json', catalogFile: 'catalog.json' }));
   for (let iteration = 0; iteration < 2; iteration++) {
     let cleanup; const timers = [];
     const timer = () => { const t = { cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
@@ -147,4 +147,25 @@ test('插件资源清理等待队列退出、释放状态锁，同一宿主可�
     await assert.rejects(readFile(path.join(root, '.local/state.json.lock')), { code: 'ENOENT' });
     assert.equal(JSON.parse(await readFile(path.join(root, '.local/runtime.json'), 'utf8')).stopped, true);
   }
+});
+
+test('bundle 安装后只补 BrowserSkill 覆盖，不再重复插入排障行', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'desktop-browser-only-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dshHome = path.join(root, 'dsh'), directory = path.join(dshHome, 'profiles', 'desktop');
+  const browserDirectory = path.join(directory, 'node_modules', '@wxg-prc-cpg', 'browser-skill-dsh-plugin');
+  await mkdir(path.join(browserDirectory, 'lib'), { recursive: true });
+  await writeFile(path.join(browserDirectory, 'package.json'), JSON.stringify({ main: 'lib/index.mjs' }));
+  await writeFile(path.join(browserDirectory, 'lib', 'index.mjs'), 'export const name = "browser-skill";');
+  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ dsh: { profile: { bundles: ['@wxg-prc-cpg/browser-skill-dsh-plugin'] } } }));
+  const original = '- id: browserskill\n  config:\n    bskPath: /native/bsk\n';
+  await writeFile(path.join(directory, 'cordis.patch.yml'), original);
+  await writeFile(path.join(root, 'demo.json'), JSON.stringify({ mode: 'mock' }));
+  const savedEnv = process.env.BSK_PATH;
+  delete process.env.BSK_PATH;
+  t.after(() => { if (savedEnv === undefined) delete process.env.BSK_PATH; else process.env.BSK_PATH = savedEnv; });
+  const result = await configureDesktop({ root, dshHome, configFile: 'demo.json', browserOnly: true });
+  const text = await readFile(result.patchFile, 'utf8');
+  const entries = text.split('\n').filter(l => l.startsWith('- {')).map(l => JSON.parse(l.slice(2)));
+  assert.deepEqual(entries, [{ id: 'browserskill', config: { lazyTools: false } }]);
 });

@@ -1,4 +1,11 @@
-# Installed bundle entry. Defaults to simulated interfaces and fixtures.
+# Installed bundle entry. Runs against the local mock group and fixtures;
+# point configFile at another config to use a company chat adapter and catalog.
+# The four tunables are volatile: edit them in the plugin's settings page.
 - insert:
     - id: test-troubleshooting
       name: dsh-troubleshooting
+      config:
+        configFile: config/browser-demo.json
+        hostMode: desktop
+        pollIntervalMs: 10000
+        chatGroupIds: ['qa-test']

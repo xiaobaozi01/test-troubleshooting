@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Smart fault localization",
+    "description": "Polls a test group for @developer questions, then uses a Harness agent to check docs, code, and cross-service logs and posts the diagnosis back to the group. Needs a chat adapter and environment catalog in the project configuration; the bundled demo uses a local mock group. Read-only by default: it does not change business data or publish fixes. Poll interval, knowledge source path, code sync, and the group allowlist are editable in the plugin's Settings section."
+  }
+}

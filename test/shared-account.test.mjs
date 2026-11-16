@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Coordinator, manualDelivery } from '../src/coordinator.mjs';
+import { Coordinator } from '../src/coordinator.mjs';
 
-const config = { chat: { groupIds: ['qa'], ownerId: 'me', botId: 'me' }, repair: { enabled: true, approvalMode: 'harness' } };
+const config = { chat: { groupIds: ['qa'], ownerId: 'me', botId: 'me' } };
 const message = (id, text, senderId = 'tester', extra = {}) => ({ id, groupId: 'qa', senderId, text, mentions: [], ...extra });
 function setup(runConfig = config) {
   let runs = 0, sends = 0;
@@ -12,18 +12,16 @@ function setup(runConfig = config) {
   return { c, store, sent, counters: () => ({ runs, sends }) };
 }
 
-test('同账号读取测试@，追问只生成草稿，旧发件箱也不会自动发群', async () => {
-  const { c, store, counters } = setup();
-  assert.equal(manualDelivery(config), true);
+test('同账号读取测试@，追问自动发回原群', async () => {
+  const { c, store, sent, counters } = setup();
   await c.ingest([message('root', '下单出错', 'tester', { mentions: ['me'] })], '1');
   await c.workOnce();
-  const task = Object.values(store.data.tasks)[0];
-  assert.match(task.latestDraft.text, /请补充/); assert.equal(task.latestDraft.delivery, 'manual'); assert.equal(store.data.outbox.length, 0);
-  store.data.outbox.push({ sent: false, text: '旧实例遗留待发送结果' });
-  await c.flushOutbox(); assert.deepEqual(counters(), { runs: 1, sends: 0 });
+  assert.equal(store.data.outbox.length, 1); assert.match(store.data.outbox[0].text, /请补充/);
+  await c.flushOutbox(); assert.deepEqual(counters(), { runs: 1, sends: 1 });
+  assert.equal(sent[0].senderId, 'me'); assert.match(sent[0].text, /需要补充信息/);
 });
 
-test('本人手动发回的报告不会再次触发Agent；测试引用转发追问仍归回原任务', async () => {
+test('本人账号的消息不会再次触发Agent；测试引用追问仍归回原任务', async () => {
   const { c, store, counters } = setup();
   await c.ingest([message('root', '接口报错', 'tester', { mentions: ['me'] })], '1');
   await c.workOnce(); const task = Object.values(store.data.tasks)[0];
@@ -35,34 +33,20 @@ test('本人手动发回的报告不会再次触发Agent；测试引用转发追
   assert.equal(counters().runs, 2); assert.equal(task.messages.length, 2);
 });
 
-test('同账号群内确认不授予修复权限，测试冒充确认也不会执行或回群', async () => {
-  const { c, store, counters } = setup();
-  await c.ingest([message('root', '报错', 'tester', { mentions: ['me'] })], '1'); await c.workOnce();
-  const task = Object.values(store.data.tasks)[0];
-  task.repairPlans = { 'R-111111111111': { state: 'awaiting_confirmation' } };
-  await c.ingest([message('owner-command', '/确认修复 R-111111111111', 'me', { replyTo: 'root' }), message('tester-command', '/确认修复 R-111111111111', 'tester', { replyTo: 'root' })], '2');
-  await c.workOnce(); await c.flushOutbox();
-  assert.equal(task.repairPlans['R-111111111111'].state, 'awaiting_confirmation');
-  assert.deepEqual(counters(), { runs: 1, sends: 0 });
-});
-
-test('最终结果只保存为手动转发草稿，不调用公司发送接口', async () => {
-  const { c, store, counters } = setup();
-  c.runner.run = async () => ({ kind: 'finish', summary: '问题已定位，以下为发群草稿', findings: [], hypotheses: [], nextSteps: ['按原用例复验'], limitations: ['未操作真实公司环境'] });
+test('最终结果自动发回原群', async () => {
+  const { c, store, sent, counters } = setup();
+  c.runner.run = async () => ({ kind: 'finish', summary: '问题已定位', findings: [], hypotheses: [], nextSteps: ['按原用例复验'], limitations: ['未操作真实公司环境'] });
   await c.ingest([message('root', '测试报错', 'tester', { mentions: ['me'] })], '1');
   await c.workOnce(); await c.flushOutbox();
-  const task = Object.values(store.data.tasks)[0];
-  assert.match(task.latestDraft.text, /问题已定位/); assert.equal(task.latestDraft.delivery, 'manual');
-  assert.equal(store.data.outbox.length, 0); assert.equal(counters().sends, 0);
+  assert.equal(counters().sends, 1); assert.match(sent[0].text, /问题已定位/);
+  assert.equal(store.data.outbox[0].sent, true);
 });
 
-const autoConfig = { ...config, chat: { ...config.chat, deliveryMode: 'auto' } };
 const report = { kind: 'finish', summary: '已定位缓存配置问题', findings: [], hypotheses: [], nextSteps: ['按原用例复验'], limitations: ['演示环境'] };
 
 test('同账号自动追问、接收引用补充并自动发最终结果，自身回显不触发新排障', async () => {
-  const { c, store, sent } = setup(autoConfig); let runs = 0;
+  const { c, store, sent } = setup(); let runs = 0;
   c.runner.run = async () => ++runs === 1 ? { kind: 'ask', question: '请补充接口和时间' } : report;
-  assert.equal(manualDelivery(autoConfig), false);
   await c.ingest([message('root', '接口报错', 'tester', { mentions: ['me'] })], '1');
   await c.workOnce(); await c.flushOutbox();
   const task = Object.values(store.data.tasks)[0];
@@ -79,7 +63,7 @@ test('同账号自动追问、接收引用补充并自动发最终结果，自�
 
 test('回显和测试引用先于发送回执到达：按发送关联键或正文任务编号归回原任务', async () => {
   for (const correlation of ['client-key', 'task-number']) {
-    const { c, store } = setup(autoConfig);
+    const { c, store } = setup();
     await c.ingest([message('root', '报错', 'tester', { mentions: ['me'] })], '1'); await c.workOnce();
     const task = Object.values(store.data.tasks)[0];
     c.chat.send = async item => {
@@ -96,7 +80,7 @@ test('回显和测试引用先于发送回执到达：按发送关联键或正�
 });
 
 test('同账号发送成功但回执丢失：重试用原幂等键，自己的回显不会再次发起排障', async () => {
-  const { c, store, counters } = setup(autoConfig);
+  const { c, store, counters } = setup();
   await c.ingest([message('root', '报错', 'tester', { mentions: ['me'] })], '1'); await c.workOnce();
   let attempts = 0; const published = new Map();
   c.chat.send = async item => {
@@ -111,18 +95,26 @@ test('同账号发送成功但回执丢失：重试用原幂等键，自己的�
   assert.equal(attempts, 2); assert.equal(published.size, 1); assert.equal(counters().runs, 1); assert.equal(store.data.outbox[0].sent, true);
 });
 
-test('自动发群不改变 Harness 审批：同账号群内确认仍不授予修复权限', async () => {
-  const { c, store, counters } = setup(autoConfig);
-  await c.ingest([message('root', '报错', 'tester', { mentions: ['me'] })], '1'); await c.workOnce(); await c.flushOutbox();
-  const task = Object.values(store.data.tasks)[0]; task.repairPlans = { 'R-111111111111': { state: 'awaiting_confirmation' } };
-  await c.ingest([message('owner-confirm', '/确认修复 R-111111111111', 'me', { replyTo: 'root' })], '2'); await c.workOnce();
-  assert.equal(task.repairPlans['R-111111111111'].state, 'awaiting_confirmation'); assert.equal(counters().runs, 1);
-});
-
 test('启用自动发送时不放行旧身份或非当前群白名单的发件项', async () => {
-  const { c, store, sent } = setup(autoConfig);
+  const { c, store, sent } = setup();
   store.data.outbox.push({ groupId: 'other-group', senderId: 'me', sent: false }, { groupId: 'qa', senderId: 'old-bot', sent: false });
   await c.ingest([message('root', '报错', 'tester', { mentions: ['me'] })], '1'); await c.workOnce(); await c.flushOutbox();
   assert.equal(sent.length, 1); assert.equal(sent[0].groupId, 'qa'); assert.equal(sent[0].senderId, 'me');
   assert.ok(store.data.outbox.slice(0, 2).every(item => item.blockedReason && !item.sent));
+});
+
+test('追问后的补充消息仍排在队列第一位', async () => {
+  const order = [];
+  const store = { data: { tasks: {}, seen: {}, outbox: [], cursor: null }, save: async () => {} };
+  const c = new Coordinator({ config, store, chat: { send: async () => ({ id: 'sent-1' }) }, runner: { run: async task => { order.push(task.id); return { kind: 'ask', question: '请补充环境' }; } }, log() {} });
+  await c.ingest([message('root-a', '接口报错A', 'tester', { mentions: ['me'] })], '1');
+  await c.workOnce();
+  const a = Object.values(store.data.tasks)[0];
+  await c.ingest([message('root-b', '接口报错B', 'tester', { mentions: ['me'] })], '2');
+  await c.ingest([message('a-detail', '环境 test，刚刚发生', 'tester', { replyTo: 'root-a' })], '3');
+  await c.workOnce();
+  assert.deepEqual(order, [a.id, a.id]);
+  const b = Object.values(store.data.tasks).find(task => task.id !== a.id);
+  assert.equal(b.status, 'queued');
+  assert.equal(b.messages.filter(m => !m.handled).length, 1);
 });

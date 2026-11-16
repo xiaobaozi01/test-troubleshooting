@@ -3,22 +3,17 @@
   "chat": {
     "baseUrl": "https://chat.example.invalid",
     "adapterModule": "company/chat-adapter.mjs",
-    "groupIds": ["REPLACE_WITH_TEST_GROUP_ID"],
+    "groupIds": [
+      "REPLACE_WITH_TEST_GROUP_ID"
+    ],
     "ownerId": "REPLACE_WITH_YOUR_ACCOUNT_ID",
     "botId": "REPLACE_WITH_YOUR_ACCOUNT_ID",
-    "deliveryMode": "auto",
     "tokenEnv": "COMPANY_CHAT_TOKEN"
   },
   "pollIntervalMs": 10000,
-  "turnTimeoutMs": 360000,
-  "maxToolCalls": 60,
   "stateFile": ".local/company-tasks.json",
   "catalogFile": "config/services.company.json",
-  "knowledge": { "sources": [] },
-  "repair": { "enabled": false, "approvalMode": "harness", "environments": [], "allowedSources": [], "adapterModule": "company/deployment-repair.mjs", "options": {} },
-  "deploymentBackend": {
-    "enabled": false,
-    "url": "https://deploy.example.invalid",
-    "instructions": "只查看目标环境和服务的配置；页面结构由 Agent 观察，不在此配置固定点击步骤。优先复用已登录浏览器。"
+  "knowledge": {
+    "sources": []
   }
 }

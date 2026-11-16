@@ -6,6 +6,18 @@ import { randomUUID } from 'node:crypto';
 const begin = '# BEGIN test-troubleshooting managed plugin';
 const end = '# END test-troubleshooting managed plugin';
 
+// A config override row (`- id: test-troubleshooting`) only replaces the composed config;
+// an insert row would mount the plugin twice. Only the latter blocks a re-install.
+function mountsRow(base) {
+  let inInsert = false;
+  for (const line of base.split(/\r?\n/)) {
+    if (/^-\s/.test(line)) inInsert = /^-\s*insert\b/.test(line);
+    const hasId = /\bid:\s*['"]?test-troubleshooting\b|"id"\s*:\s*"test-troubleshooting"/.test(line);
+    if (hasId && (inInsert || /\binsert\b/.test(line))) return true;
+  }
+  return false;
+}
+
 export function updateDesktopPatch(current, entries = []) {
   const lines = current.split(/\r?\n/);
   const first = lines.indexOf(begin), last = lines.indexOf(end);
@@ -13,13 +25,13 @@ export function updateDesktopPatch(current, entries = []) {
   if (first >= 0) lines.splice(first, last - first + 1);
   let base = first >= 0 ? lines.join('\n').trimEnd() : current.trimEnd();
   if (!entries.length) return first < 0 ? current : base + '\n';
-  if (/\bid:\s*['"]?test-troubleshooting\b|"id"\s*:\s*"test-troubleshooting"/m.test(base)) throw new Error('profile 已有未受本脚本管理的排障插件，请先合并该条配置，避免双重轮询');
+  if (mountsRow(base)) throw new Error('profile 已有未受本脚本管理的排障插件，请先合并该条配置，避免双重轮询');
   // An empty YAML sequence cannot be followed by block-sequence entries.
   base = base.replace(/^\[\]\s*(?:#.*)?$/m, '').trimEnd();
   return `${base}${base ? '\n\n' : ''}${begin}\n${entries.map(entry => '- ' + JSON.stringify(entry)).join('\n')}\n${end}\n`;
 }
 
-export async function configureDesktop({ root, dshHome, profile = 'desktop', configFile = 'config/demo.json', remove = false, dryRun = false }) {
+export async function configureDesktop({ root, dshHome, profile = 'desktop', configFile = 'config/demo.json', remove = false, dryRun = false, browserOnly = false }) {
   if (!/^[a-zA-Z0-9_-]+$/.test(profile)) throw new Error('profile 名称无效');
   const directory = path.join(dshHome, 'profiles', profile);
   const packageFile = path.join(directory, 'package.json');
@@ -34,22 +46,27 @@ export async function configureDesktop({ root, dshHome, profile = 'desktop', con
     const config = JSON.parse(await readFile(absoluteConfig, 'utf8'));
     if (!['mock', 'ssh'].includes(config.mode)) throw new Error('排障配置 mode 无效');
     let browserSkillDirectory;
-    if (config.deploymentBackend?.enabled) {
+    const hasBrowserSkill = profilePackage.dsh.profile.bundles.includes('@wxg-prc-cpg/browser-skill-dsh-plugin');
+    if (hasBrowserSkill) {
       // Reuse the user's existing BrowserSkill bundle, never mount a second copy.
-      if (!profilePackage.dsh.profile.bundles.includes('@wxg-prc-cpg/browser-skill-dsh-plugin')) throw new Error('请先在此 Harness profile 中启用已安装的 BrowserSkill 插件');
       const entry = createRequire(packageFile).resolve('@wxg-prc-cpg/browser-skill-dsh-plugin');
       browserSkillDirectory = path.resolve(path.dirname(entry), '..');
       const browserConfig = { lazyTools: false };
-      if (config.deploymentBackend.bskPath) browserConfig.bskPath = config.deploymentBackend.bskPath;
-      else if (process.env.BSK_PATH) browserConfig.bskPath = process.env.BSK_PATH;
+      if (process.env.BSK_PATH) browserConfig.bskPath = process.env.BSK_PATH;
       else {
         const local = path.join(root, '.local', 'bin', process.platform === 'win32' ? 'bsk.exe' : 'bsk');
         try { await access(local); browserConfig.bskPath = local; } catch { /* Keep native settings when no project CLI exists. */ }
       }
       // Otherwise keep the existing native plugin's CLI path/settings.
       entries.push({ id: 'browserskill', config: browserConfig });
-    }
-    entries.push({ insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/desktop-plugin.mjs'), config: { root, configFile: absoluteConfig, hostMode: 'desktop', ...(config.runtimeFile ? { runtimeFile: config.runtimeFile } : {}), ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] });
+    } else if (browserOnly) throw new Error('请先在此 Harness profile 中启用已安装的 BrowserSkill 插件');
+    // The two tunables are volatile config: the settings page edits them in the profile
+    // override layer. Seed them from the chosen config file so the form shows real values.
+    const tunables = {
+      pollIntervalMs: config.pollIntervalMs ?? 10000,
+      ...(Array.isArray(config.chat?.groupIds) && config.chat.groupIds.length ? { chatGroupIds: config.chat.groupIds } : {}),
+    };
+    if (!browserOnly) entries.push({ insert: [{ id: 'test-troubleshooting', name: path.join(root, 'src/desktop-plugin.mjs'), config: { root, configFile: absoluteConfig, hostMode: 'desktop', ...tunables, ...(config.runtimeFile ? { runtimeFile: config.runtimeFile } : {}), ...(browserSkillDirectory ? { browserSkillDirectory } : {}) } }] });
   }
   const next = updateDesktopPatch(current, entries);
   const changed = next !== current;

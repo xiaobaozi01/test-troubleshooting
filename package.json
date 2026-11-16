@@ -3,12 +3,54 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "运行于本机的 DeepSeek Harness 测试群排障扩展",
+  "description": "运行于本机的 DeepSeek Harness 智能故障定位扩展",
   "main": "src/plugin.mjs",
-  "files": ["src", "config/demo.json", "config/browser-demo.json", "config/repair-demo.json", "config/company.example.json", "config/services.example.json", "config/ssh.example.conf", "fixtures", "mock", "scripts", "test", ".agents/skills", "docs", "cordis.patch.yml", "README.md"],
+  "exports": {
+    ".": "./src/plugin.mjs",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./client": "./client.js"
+  },
+  "icon": "icon.svg",
+  "files": [
+    "src",
+    "client.js",
+    "config/demo.json",
+    "config/browser-demo.json",
+    "config/company.example.json",
+    "config/services.example.json",
+    "config/ssh.example.conf",
+    "fixtures",
+    "mock",
+    "scripts",
+    "test",
+    ".agents/skills",
+    "docs",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md"
+  ],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
-    "compatibility": { "dsh": "0.2.2-rc.1", "profiles": ["web"] }
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dsh": "0.2.2-rc.1",
+      "profiles": [
+        "web",
+        "desktop"
+      ]
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
   },
   "scripts": {
     "start": "node scripts/start.mjs",
@@ -17,8 +59,12 @@
     "test": "node --test test/*.test.mjs",
     "demo": "node scripts/demo.mjs",
     "demo:browser": "node scripts/demo-browser.mjs",
-    "demo:knowledge": "node scripts/demo-knowledge.mjs",
-    "demo:repair": "node scripts/demo-repair.mjs"
+    "demo:knowledge": "node scripts/demo-knowledge.mjs"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.19.0"
+  }
 }

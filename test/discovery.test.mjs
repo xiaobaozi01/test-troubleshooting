@@ -18,7 +18,7 @@ test('无 services/routes 配置，按接口跨仓找到 Spring 控制器与容�
   const stock = await q.findEndpoint({ environment: 'test', endpoint: '/internal/stock/reserve', method: 'POST' });
   assert.equal(stock.matches[0].instances[0].service, 'stock-service');
   assert.equal(stock.matches[0].line, 6);
-  const logs = await q.logs({ environment: 'test', service: 'stock-service', since: '2026-11-09T01:59:00+08:00', until: '2026-11-09T02:01:00+08:00', traceId: 'demo-order-101' });
+  const logs = await q.logFile({ environment: 'test', service: 'stock-service', since: '2026-11-09T01:59:00+08:00', until: '2026-11-09T02:01:00+08:00', traceId: 'demo-order-101' });
   assert.ok(logs.lines.some(l => l.text.includes('CACHE_NAMESPACE')));
 });
 test('Spring 合并类和方法的多路径/多 HTTP 方法；忽略注释和动态表达式', () => {

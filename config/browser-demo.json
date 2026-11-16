@@ -1,15 +1,23 @@
 {
   "mode": "mock",
-  "chat": { "baseUrl": "http://127.0.0.1:4317", "groupIds": ["qa-test"], "ownerId": "developer-me", "botId": "troubleshooting-bot" },
+  "chat": {
+    "baseUrl": "http://127.0.0.1:4317",
+    "groupIds": [
+      "qa-test"
+    ],
+    "ownerId": "developer-me",
+    "botId": "troubleshooting-bot"
+  },
   "pollIntervalMs": 10000,
-  "turnTimeoutMs": 360000,
-  "maxToolCalls": 60,
   "stateFile": ".local/tasks.json",
   "catalogFile": "fixtures/catalog.json",
-  "knowledge": { "sources": [{ "id": "demo-faq", "title": "演示常见问题", "path": "fixtures/knowledge" }] },
-  "deploymentBackend": {
-    "enabled": true,
-    "url": "http://127.0.0.1:4317/deploy",
-    "instructions": "此后台是本机模拟站点，演示账号 demo、密码 demo-only 都是公开样例。可自动填写登录表单。根据实际页面选择目标环境和服务，再查看 YAML；不要根据地址拼接猜测配置页，不修改数据。公司真实站点不使用这些演示账号。"
+  "knowledge": {
+    "sources": [
+      {
+        "id": "demo-faq",
+        "title": "演示常见问题",
+        "path": "fixtures/knowledge"
+      }
+    ]
   }
 }

@@ -83,21 +83,21 @@ test('未配置时保持兼容；配置与查询参数严格验证', async t => 
   await assert.rejects(kb.search({ query: 'DNS', sourceId: 'other' }), /未知/);
 });
 
-test('知识查询接入 Harness 同轮预算与真实证据引用，无需固定调用日志工具', async t => {
+test('知识查询接入真实证据引用，无需固定调用日志工具', async t => {
   const { root, create } = await fixture(t);
   await writeFile(path.join(root, 'faq', 'answer.md'), '# FAQ\nONLY_DOC：参考操作说明，不宣称已修复。');
   const registered = new Map();
-  const runner = new HarnessRunner({ root, knowledge: await create(), config: { maxToolCalls: 2 }, store: { save: async () => {} }, skill: '' });
+  const runner = new HarnessRunner({ root, knowledge: await create(), config: {}, store: { save: async () => {} }, skill: '' });
   const task = { id: 'T-knowledge', evidence: {}, calls: [], actions: {} };
   await runner.register({ tools: { restrict() {}, register: def => registered.set(def.name, def) }, systemPrompt: { section() {} } }, task);
-  runner.turns.set(task.id, { message: { id: 'm-1' }, calls: 0 });
+  runner.turns.set(task.id, { message: { id: 'm-1' } });
   const exec = { signal: new AbortController().signal };
   const found = await registered.get('troubleshoot_knowledge_search').execute({ query: 'ONLY_DOC' }, exec);
   const doc = await registered.get('troubleshoot_knowledge_read').execute(found.documents[0], exec);
   assert.equal(task.evidence[doc.evidenceId].kind, 'knowledge-document');
-  await assert.rejects(registered.get('troubleshoot_knowledge_search').execute({ query: 'again' }, exec), /查询上限/);
   const report = { summary: '资料处理方法', findings: [{ statement: '文档给出的步骤', evidenceIds: [doc.evidenceId] }], hypotheses: [], nextSteps: ['核实适用条件'], limitations: ['尚未验证运行状态'] };
   validateReport(task, report);
   assert.equal((await registered.get('troubleshoot_finish').execute(report, exec)).accepted, true);
   assert.deepEqual(task.calls.map(c => c.tool), ['troubleshoot_knowledge_search', 'troubleshoot_knowledge_read', 'troubleshoot_finish']);
 });
+

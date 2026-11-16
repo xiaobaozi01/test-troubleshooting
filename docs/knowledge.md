@@ -38,12 +38,11 @@ JSON 可用数组，或 `{ "documents": [...] }`：
 
 ## Agent 如何使用
 
-启用知识源后，会话增加两个查询工具，共享原来的查询预算：
+启用知识源后，会话增加两个查询工具：
 
 1. `troubleshoot_knowledge_search`：按现象、错误码、异常类或配置键检索候选，返回 sourceId/documentId、摘要、位置与版本。
 2. `troubleshoot_knowledge_read`：读取正文和行号，长文档按 nextLine 继续。结果作为 `knowledge-document` 证据保存并可引用。
 
-若某条问题允许修改配置，在正文加上限定范围的 repair-policy 授权块，并由管理员启用修复源；Agent 仍需提出精确方案、等待开发本人确认。自然语言的诊断和修复内容无需写成代码。见 [确认后修复](repair.md)。
 
 本地检索采用字面关键词及中文相邻字匹配，不是语义向量检索；Agent 可以换短词重试。检索失败会返回 warnings，无匹配不代表问题不存在。不同知识源各自返回最多 limit 条（默认5，最多10），不跨源伪造统一置信度。
 
@@ -97,3 +96,14 @@ export async function createSource(options) {
 应看到真实 Agent 调用检索/阅读工具并引用文档答复；没有预置 FAQ 回复模板。该错误码和处理时长都是公开演示规则，不代表公司策略。
 
 也可执行 `npm run demo:knowledge` 自动提交上面的消息并检查实际知识工具调用、正文证据引用，以及没有运行日志/浏览器查询；检查脚本不生成答案。报告保存到 `.local/knowledge-demo-result.json`。
+
+
+## 日志文件路径
+
+知识文档里可以写服务的日志文件绝对路径，例如：
+
+```md
+日志文件：/var/log/app/order-service.log
+```
+
+Agent 会把这个路径传给 `troubleshoot_log_file`，由插件 SSH 到服务所在主机读取文件尾部，再按时间、`traceId` 或关键字筛选。路径必须是服务器上的绝对路径，不能猜测；知识文档只提供线索，实际日志仍需工具读取并作为独立证据。

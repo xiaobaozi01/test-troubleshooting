@@ -47,7 +47,7 @@ while (Date.now() < deadline) {
   if (task?.status === 'diagnosed') {
     if (!replied) throw new Error('缺少请求线索时 Agent 没有先追问');
     if (!task.calls.some(c => c.tool === 'troubleshoot_find_endpoint')) throw new Error('Agent 没有跨代码仓检索接口所属服务');
-    const services = new Set(task.calls.filter(c => c.tool === 'troubleshoot_logs').map(c => c.args.service));
+    const services = new Set(task.calls.filter(c => c.tool === 'troubleshoot_log_file').map(c => c.args.service));
     if (!services.has('order-service') || !services.has('stock-service')) throw new Error('Agent 未完成入口和下游日志查询');
     const report = Object.values(task.actions).find(a => a.kind === 'finish');
     if (!JSON.stringify(report).includes('CACHE_NAMESPACE')) throw new Error('报告未定位到实际配置异常');

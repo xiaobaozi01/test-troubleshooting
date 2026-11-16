@@ -10,6 +10,7 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === '--config' && args[i + 1]) options.configFile = args[++i];
   else if (args[i] === '--profile' && args[i + 1]) options.profile = args[++i];
   else if (args[i] === '--remove') options.remove = true;
+  else if (args[i] === '--browser-only') options.browserOnly = true;
   else if (args[i] === '--dry-run') options.dryRun = true;
   else throw new Error(`未知或不完整的参数：${args[i]}`);
 }

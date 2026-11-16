@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createDeploymentPortal } from '../mock/deployment.mjs';
-import { browserGuard, installBrowserSupport, browserInstructions } from '../src/browser-support.mjs';
+import { browserGuard, browserOrigins, installBrowserSupport, browserInstructions } from '../src/browser-support.mjs';
 
 test('模拟部署后台要求登录，测试环境与服务明确，配置页面无写入动作', async t => {
   const portal = createDeploymentPortal();
@@ -25,27 +25,36 @@ test('模拟部署后台要求登录，测试环境与服务明确，配置页�
   assert.equal(portal.audit.successfulLogins, 1); assert.equal(portal.audit.writes, 0);
 });
 
-test('只允许后台站点，浏览器实例明确绑定，禁用任意脚本和网络改写', () => {
-  const backend = { url: 'https://deploy.example.invalid', browser: 'verified-instance' };
-  const invoke = (name, args) => browserGuard({ name, arguments: args }, backend, { calls: 0 }, 30);
+test('配置了授权站点时只允许该站点；浏览器实例明确绑定，禁用任意脚本和网络改写', () => {
+  const backend = { allowedOrigins: ['https://deploy.example.invalid'], browser: 'verified-instance' };
+  const invoke = (name, args) => browserGuard({ name, arguments: args }, backend, {});
   assert.equal(invoke('bsk_page', { action: 'navigate', url: 'https://deploy.example.invalid/login' }), undefined);
   assert.match(invoke('bsk_page', { action: 'navigate', url: 'https://unrelated.example.invalid' }), /授权站点/);
   assert.match(invoke('bsk_session', { action: 'start', browser: 'wrong' }), /绑定/);
   assert.match(invoke('bsk_interact', { action: 'evaluate' }), /任意脚本/);
   assert.match(invoke('bsk_inspect', { action: 'debug' }), /网络规则/);
-  assert.match(browserGuard({ name: 'bsk_page', arguments: {} }, backend, null, 30), /没有可操作/);
+  assert.match(browserGuard({ name: 'bsk_page', arguments: {} }, backend, null), /没有可操作/);
 });
 
-test('后台入口不接受脚本协议或 URL 内嵌凭证', async () => {
-  await assert.rejects(browserInstructions('/unused', { url: 'javascript:alert(1)' }), /HTTP/);
-  await assert.rejects(browserInstructions('/unused', { url: 'https://user:password@example.invalid' }), /账号密码/);
+test('未配置授权站点时由 Agent 按知识源判断，只拦非 HTTP(S) 和带凭证地址', () => {
+  const invoke = (name, args) => browserGuard({ name, arguments: args }, {}, {});
+  assert.equal(invoke('bsk_page', { action: 'navigate', url: 'https://deploy.example.invalid/login' }), undefined);
+  assert.match(invoke('bsk_page', { action: 'navigate', url: 'javascript:alert(1)' }), /HTTP/);
+  assert.match(invoke('bsk_page', { action: 'navigate', url: 'https://user:password@example.invalid' }), /HTTP/);
+});
+
+test('授权站点可省略；配置了就必须是无凭证的 HTTP(S) 地址', () => {
+  assert.deepEqual(browserOrigins({ allowedOrigins: [] }), []);
+  assert.deepEqual(browserOrigins({}), []);
+  assert.throws(() => browserOrigins({ allowedOrigins: ['javascript:alert(1)'] }), /HTTP/);
+  assert.throws(() => browserOrigins({ allowedOrigins: ['https://user:password@example.invalid'] }), /HTTP/);
 });
 
 test('实际页面观察追加可引用的证据；失败与策略阻止结果不会变为事实', async () => {
   let listener;
   const task = { id: 'T-browser', evidence: {}, calls: [] };
-  const turns = new Map([[task.id, { calls: 0 }]]);
-  installBrowserSupport({ scope: { systemPrompt: { section() {} }, tools: { guard() {} }, on: (_name, fn) => { listener = fn; } }, task, turns, config: { deploymentBackend: { url: 'http://127.0.0.1:4317/deploy' }, maxToolCalls: 20 }, browser: { text: 'native docs' }, store: { save: async () => {} } });
+  const turns = new Map([[task.id, {}]]);
+  installBrowserSupport({ scope: { systemPrompt: { section() {} }, tools: { guard() {} }, on: (_name, fn) => { listener = fn; } }, task, turns, config: { deploymentBackend: { allowedOrigins: ['http://127.0.0.1:4317'] } }, browser: { text: 'native docs' }, store: { save: async () => {} } });
   const result = { isError: false, content: [{ type: 'text', text: 'test/order-service partner.api.base-url=https://partner-sandobx.example.invalid\npassword=fixture-secret' }] };
   const decision = await listener({ name: 'bsk_inspect', arguments: { action: 'observe', session: 'owned' } }, result, async () => ({ kind: 'accept' }));
   assert.match(decision.content.at(-1).text, /E-/);
